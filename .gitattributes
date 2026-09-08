@@ -1,1 +1,5 @@
 * text=auto eol=lf
+
+# Preserve upstream legal text verbatim, including whitespace that its authors supplied.
+docs/licenses/** -whitespace
+THIRD-PARTY-NOTICES.txt -whitespace
