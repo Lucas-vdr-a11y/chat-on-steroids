@@ -343,7 +343,7 @@ it('shows ordinary after-turn messages in the task dock until actual delivery', 
   expect(w.document.getElementById('timeline')!.textContent).toContain('Next task');
 });
 
-it('shows canonical user attachments as persistent thumbnails for the selected session', async () => {
+it('keeps canonical image attachments above the user text bubble for the selected session', async () => {
   const app = await boot([]);
   const { w } = app;
   const message: SessionEvent = { seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'input:one', inputId: 'one', message: text('Inspect this'), assets: [{ id: 'abcdef.bin', mimeType: 'image/webp', bytes: 12 }] };
@@ -354,9 +354,27 @@ it('shows canonical user attachments as persistent thumbnails for the selected s
   const attachments = w.document.querySelector('.message-attachments')!;
   expect(attachments.tagName).toBe('DIV');
   expect(attachments.querySelector('summary')).toBeNull();
+  expect(attachments.nextElementSibling?.classList.contains('user-message-text')).toBe(true);
   await settle();
   expect(getImage).toHaveBeenCalledWith(summary([]).id, 'abcdef.bin');
   expect(attachments.querySelector('img')?.getAttribute('src')).toBe('data:image/webp;base64,YQ==');
+});
+
+it('uses the same separate image row for pending and recorded native attachments', async () => {
+  const app = await boot([]);
+  const attachment = { id: 'a'.repeat(32), name: 'meme.png', mimeType: 'image/png', size: 42, preview: 'data:image/webp;base64,YQ==' };
+  app.live.inputs.push({ id: 'image-input', sessionId: summary([]).id, text: 'whats that', attachments: [attachment],
+    mode: 'auto', dueAt: 0, model: null, reasoningEffort: null, state: 'browser', owner: null, createdAt: T0, conversationId: 'chat-b' });
+  await app.append([]);
+  const pending = app.w.document.querySelector('.pending-message')!;
+  expect(pending.querySelector('.message-attachments')?.nextElementSibling?.className).toBe('pending-message-text');
+  expect(pending.querySelector('.composer-image')).toBeNull();
+  await app.append([{ seq: 1, time: T0, source: 'app', kind: 'user_message', messageId: 'native-image',
+    inputId: 'image-input', message: text('whats that'), attachments: [attachment] }]);
+  const recorded = app.w.document.querySelector('.said.is-user')!;
+  expect(recorded.querySelector('.message-attachments')?.nextElementSibling?.classList.contains('user-message-text')).toBe(true);
+  expect(recorded.querySelector('.message-attachments > img')?.getAttribute('alt')).toBe('meme.png');
+  expect(recorded.querySelector('.composer-image')).toBeNull();
 });
 
 it('loads recorded tool images on expansion and hides truncated binary envelopes', async () => {

@@ -148,7 +148,7 @@ function paintComposerImages(): void {
   const images = imageDrafts.get(key) ?? [];
   const box = $('composerImages'); box.hidden = !images.length; box.replaceChildren();
   images.forEach((image, index) => {
-    const tile = 'dataUrl' in image ? el('div', 'composer-image') : attachmentCard(image);
+    const tile = 'dataUrl' in image ? el('div', 'composer-image') : attachmentCard(image, true);
     if ('dataUrl' in image) { const preview = document.createElement('img'); preview.src = image.dataUrl; preview.alt = image.name; tile.append(preview); }
     const remove = el('button', 'image-remove', '×'); remove.setAttribute('type', 'button'); remove.setAttribute('aria-label', `Remove ${image.name}`);
     remove.addEventListener('click', () => { imageDrafts.set(key, images.filter((_entry, at) => at !== index)); paintComposerImages(); });
@@ -156,9 +156,12 @@ function paintComposerImages(): void {
   });
   paintDeliveryControls();
 }
-function attachmentCard(file: InputAttachment): HTMLElement {
-  if (file.preview) { const tile = el('div', 'composer-image'); tile.title = file.name;
-    const image = document.createElement('img'); image.src = file.preview; image.alt = file.name; tile.append(image); return tile; }
+function attachmentCard(file: InputAttachment, inComposer = false): HTMLElement {
+  if (file.preview) {
+    const image = document.createElement('img'); image.src = file.preview; image.alt = file.name; image.title = file.name;
+    if (!inComposer) return image;
+    const tile = el('div', 'composer-image'); tile.append(image); return tile;
+  }
   const tile = el('div', 'attachment-card'); tile.title = file.name;
   const glyph = el('span', 'attachment-icon');
   glyph.setAttribute('aria-hidden', 'true');
@@ -1421,8 +1424,12 @@ function eventBody(event: SessionEvent, context?: { id: string; current: () => b
     case 'user_message': {
       const box = el('div', 'said is-user');
       box.append(el('b', '', 'You'));
-      if (event.attachments?.length) { const files = el('div', 'message-attachments'); files.append(...event.attachments.map(attachmentCard)); box.append(files); }
-      box.append(textBlock('msg', event.authoredText ?? event.message.text, event.authoredText === undefined && event.message.truncated, event.authoredText?.length ?? event.message.chars));
+      const attachments = el('div', 'message-attachments');
+      if (event.attachments?.length) attachments.append(...event.attachments.map(file => attachmentCard(file)));
+      const assets = event.assets?.filter(asset => asset.mimeType === 'image/webp').slice(0, 4) ?? [];
+      if (event.attachments?.length || assets.length) box.append(attachments);
+      const userText = event.authoredText ?? event.message.text;
+      if (userText) box.append(textBlock('msg user-message-text', userText, event.authoredText === undefined && event.message.truncated, event.authoredText?.length ?? event.message.chars));
       if (event.inputDelivery) {
         box.classList.add('has-input-receipt');
         const receipt = el('span', 'input-receipt');
@@ -1431,10 +1438,8 @@ function eventBody(event: SessionEvent, context?: { id: string; current: () => b
         receipt.append(icon(event.inputDelivery === 'offered' ? 'i-clock' : 'i-check'));
         box.append(receipt);
       }
-      const assets = event.assets?.filter(asset => asset.mimeType === 'image/webp').slice(0, 4) ?? [];
       if (assets.length && (context?.id || selectedId)) {
         const id = context?.id ?? selectedId!, generation = selectionGeneration;
-        const attachments = el('div', 'message-attachments');
         void (async () => {
           for (const asset of assets) {
             const data = await run(api.getSessionImage(id, asset.id));
@@ -1445,7 +1450,6 @@ function eventBody(event: SessionEvent, context?: { id: string; current: () => b
             attachments.append(image);
           }
         })();
-        box.append(attachments);
       }
       return box;
     }
@@ -2921,13 +2925,11 @@ async function refreshInputQueue(): Promise<void> {
     visibleInputIds.add(entry.id);
     if (visibleInputIds.size > 100) visibleInputIds.delete(visibleInputIds.values().next().value!);
     const status = entry.error || (entry.state === 'failed' ? 'Delivery not confirmed' : entry.state === 'decision' ? 'Preparing follow-up' : entry.state === 'browser' ? 'Delivery confirmation pending' : entry.state === 'tool' ? 'Sent to the active turn · awaiting receipt' : entry.dueAt > Date.now() ? `Scheduled ${new Date(entry.dueAt).toLocaleString()}` : 'Queued');
-    if (entry.attachments?.length) { const files = el('div', 'message-attachments'); files.append(...entry.attachments.map(attachmentCard)); row.append(files); }
-    row.append(el('div', 'pending-message-text', entry.text));
-    if (entry.images?.length) {
-      const images = el('div', 'pending-images');
-      for (const image of entry.images) { const preview = document.createElement('img'); preview.src = image.dataUrl; preview.alt = image.name; images.append(preview); }
-      row.append(images);
-    }
+    const files = el('div', 'message-attachments');
+    if (entry.attachments?.length) files.append(...entry.attachments.map(file => attachmentCard(file)));
+    for (const image of entry.images ?? []) { const preview = document.createElement('img'); preview.src = image.dataUrl; preview.alt = image.name; files.append(preview); }
+    if (files.childElementCount) row.append(files);
+    if (entry.text) row.append(el('div', 'pending-message-text', entry.text));
     const receipt = el('span', 'pending-message-status');
     receipt.title = status; receipt.setAttribute('aria-label', status);
     if (entry.error || entry.state === 'failed') {

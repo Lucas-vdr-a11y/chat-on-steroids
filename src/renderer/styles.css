@@ -1848,7 +1848,8 @@ input[readonly] {
 
 .said { padding: 8px 0; border-radius: 0; background: transparent; }
 
-.said.is-user { background: var(--hover); border: 0; border-radius: 20px; padding: 16px 20px; margin: 4px 0 4px auto; max-width: 82%; width: fit-content; }
+.said.is-user { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding: 0; margin: 4px 0 4px auto; max-width: 82%; width: fit-content; }
+.user-message-text, .pending-message-text { max-width: 100%; padding: 16px 20px; border-radius: 20px; background: var(--hover); }
 
 .said b {
   display: none;
@@ -2543,7 +2544,7 @@ nav button:hover, nav button.is-sel { background: var(--hover); color: var(--ink
 .composer-options { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; }
 .composer-options select { border: 0; background: transparent; color: var(--soft); font: inherit; font-size: 11px; max-width: 130px; padding: 5px; }
 .input-queue { width: 100%; margin: 0 auto; }
-.pending-message { position: relative; margin: 4px 0 26px auto; width: fit-content; max-width: 82%; padding: 16px 20px; border: 0; background: var(--hover); border-radius: 20px; text-align: left; }
+.pending-message { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; margin: 4px 0 26px auto; width: fit-content; max-width: 82%; text-align: left; }
 .pending-message-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.75; }
 .pending-message-status { position: absolute; right: 30px; top: calc(100% + 1px); height: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1.45; color: var(--soft); }
 .pending-message.is-delivery-error .pending-message-status { position: static; display: block; height: auto; margin-top: 4px; font-size: 11px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2558,8 +2559,6 @@ nav button:hover, nav button.is-sel { background: var(--hover); color: var(--ink
 .input-receipt { position: absolute; right: 2px; top: calc(100% + 1px); width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; color: var(--soft); }
 .input-receipt[hidden], .pending-message-status[hidden] { display: none; }
 .input-receipt .ico { width: 13px; height: 13px; }
-.pending-images { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
-.pending-images img { width: 76px; height: 76px; object-fit: cover; border-radius: 10px; }
 .session-tooltip { position: fixed; width: 270px; padding: 12px 14px; border: 1px solid var(--edge); border-radius: 10px; background: var(--card); box-shadow: 0 6px 20px #0003; color: var(--ink); font-size: 13px; line-height: 1.5; z-index: 100; pointer-events: none; overflow-wrap: anywhere; animation: surface-in 120ms ease-out; }
 @keyframes surface-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes message-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -2603,7 +2602,6 @@ nav button:hover, nav button.is-sel { background: var(--hover); color: var(--ink
 .attachment-details { min-width: 0; font-size: 14px; line-height: 20px; }
 .attachment-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-kind { color: var(--muted); }
-.message-attachments:has(.attachment-card) { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
 .composer-image { position: relative; width: 78px; height: 66px; }
 .composer-image img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
 .image-remove { position: absolute; top: -4px; right: -4px; border: 0; width: 20px; height: 20px; border-radius: 50%; background: var(--ink); color: var(--page); cursor: pointer; }
@@ -2716,7 +2714,7 @@ select option { background: var(--card); color: var(--ink); }
 .settings-section-title { margin: 34px 0 14px; font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ink); }
 .composer-popover .muted { margin: 6px 9px; font-size: 11px; line-height: 1.5; }
 
-.message-attachments { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.message-attachments { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; max-width: 100%; }
 .message-attachments img { display: block; width: 96px; height: 96px; object-fit: contain; border: 1px solid var(--line); border-radius: 12px; }
 
 .usage-panel .setting { gap: 24px; }
