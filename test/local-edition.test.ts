@@ -38,7 +38,7 @@ it('creates, edits, moves and deletes files and executes commands over MCP witho
  expect(await readFile(path.join(directory,'new.txt'),'utf8')).toBe('created\n');
  await patch('*** Begin Patch\n*** Update File: /shared/new.txt\n*** Move to: /shared/moved.txt\n@@\n-created\n+edited\n*** End Patch');
  expect(await readFile(path.join(directory,'moved.txt'),'utf8')).toBe('edited\n');
- const command = await client.callTool({name:'exec_command',arguments:{cmd:'printf local-mcp-works',workdir:'/shared',yield_time_ms:1000}});
+ const command = await client.callTool({name:'exec_command',arguments:{cmd:'node -e "process.stdout.write(\'local-mcp-works\')"' ,workdir:'/shared',yield_time_ms:1000}});
  expect(command.isError,JSON.stringify(command)).not.toBe(true);expect(JSON.stringify(command)).toContain('local-mcp-works');
  await patch('*** Begin Patch\n*** Delete File: /shared/moved.txt\n*** End Patch');
  await expect(readFile(path.join(directory,'moved.txt'),'utf8')).rejects.toThrow();
