@@ -78,6 +78,12 @@ notice inventory now disable Git text conversion so the upstream bytes survive p
 Local catalog package tests passed for all five downloadable entries, including Playwright
 page-content verification independent of its inline/file snapshot presentation.
 
+The next hosted pass exposed a race in the worker crash-order regression test on macOS and
+Linux: it treated completion of the broker write as completion of the separate command-lease
+write lane. The test now observes eventual on-disk command retirement after opening the broker
+gate, while retaining the assertion that the command stays durable before that gate opens.
+The production durability fence is unchanged.
+
 Local validation: clean dependency installation; exact upstream archive/notice comparisons;
 `npm run verify` passed 3,402 main tests and two shutdown tests (27 existing opt-in/platform
 skips); production build passed. The new cross-platform live-plugin checks are tracked in the

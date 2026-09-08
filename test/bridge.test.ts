@@ -4068,14 +4068,16 @@ describe('delivering a bootstrap', () => {
         )?.info.state
       ).toBe('failed');
 
-      // Join the same critical flight as drop() before releasing it. Its earlier
-      // continuation queues bridge retirement before this observer drains disk.
+      // Join the broker flight before releasing it. Bridge retirement also waits for
+      // independent command lease writes, so broker completion alone is not its barrier.
       const brokerPersisted = persistCriticalSwarmNow();
       gate.release();
       expect(await brokerPersisted).toBe(true);
-      await flushDurable();
-      const after = await readDurable<any>('bridge-commands');
-      expect(after?.commands?.some((entry: any) => entry?.id === workerCommand.id)).toBe(false);
+      await vi.waitFor(async () => {
+        await flushDurable();
+        const after = await readDurable<any>('bridge-commands');
+        expect(after?.commands?.some((entry: any) => entry?.id === workerCommand.id)).toBe(false);
+      });
       const durableBroker = await readDurable<any>('swarm');
       expect(durableBroker?.dormantRuns?.[0]?.agents.find((entry: any) => entry?.info?.id === 'worker-1')?.info?.state).toBe(
         'failed'
