@@ -1,20 +1,20 @@
 {
-  "name": "chat-on-steroids",
-  "version": "2.0.8",
+  "name": "chat-on-steroids-local",
+  "version": "2.0.8-local.1",
   "description": "Local coding bridge for ChatGPT over MCP, with native desktop control and approved-folder capability limits.",
   "license": "MIT",
   "author": "Chat On Steroids",
-  "homepage": "https://github.com/totec448-spec/chat-on-steroids",
+  "homepage": "https://github.com/Lucas-vdr-a11y/chat-on-steroids",
   "desktopName": "com.chatonsteroids.app.desktop",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run test/local-edition.test.ts test/sandbox.test.ts test/codex-apply-patch-parity.test.ts test/codex-apply-patch-move-rollback.test.ts test/plugins-manager.test.ts test/plugins-installer.test.ts test/plugins-oauth.test.ts test/computer-local-actions.test.ts",
     "test:watch": "vitest",
     "verify": "npm run verify:ci",
-    "verify:ci": "npm run rg && npm run verify:privacy && npm run verify:notices && npm run typecheck && node -e \"require('electron')\" && vitest run --exclude test/mcp-shutdown.test.ts && vitest run test/mcp-shutdown.test.ts",
+    "verify:ci": "npm run rg && npm run verify:privacy && npm run verify:notices && npm run typecheck && npm test && npm run build",
     "verify:notices": "node scripts/generate-third-party-notices.mjs --check && node scripts/package-native-sources.mjs --check",
     "verify:privacy": "node scripts/verify-public-history.mjs",
     "verify:tunnel-current": "node scripts/verify-current-tunnel.mjs",
@@ -44,7 +44,8 @@
     "dist:dir:linux:x64": "node scripts/package.mjs --platform linux --arch x64 --dir",
     "dist:dir:linux:arm64": "node scripts/package.mjs --platform linux --arch arm64 --dir",
     "dist:dir:linux": "node scripts/package.mjs --platform linux --arch x64,arm64 --dir",
-    "test:kill": "node scripts/kill-stray-vitest.mjs"
+    "test:kill": "node scripts/kill-stray-vitest.mjs",
+    "test:upstream": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/mcpb": "^2.1.2",

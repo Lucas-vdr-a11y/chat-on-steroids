@@ -80,7 +80,7 @@ function coreInstructions(ctx: ToolContext, platform: NodeJS.Platform): string {
     // Taught once here rather than in every tool description: it is one rule that holds
     // across read, find, exec_command and apply_patch alike, and repeating it per tool would
     // cost more context than the shorthand saves.
-    'Once you use a full path this chat remembers that project, so later paths may be relative to it; use a full path again to move to another project. If a relative path is refused, this chat has no folder yet — use a full one.',
+    'Use full paths under an approved root and an explicit workdir for commands. This connector does not read ChatGPT pages, identify chats or remember per-chat projects. All chats using this personal connector share its local authority. Do not use computer or command tools to scrape or automate ChatGPT.',
     // Reading is three milliseconds of work behind a multi-second round trip, so the expensive
     // mistake is splitting one file across calls, not asking for too much in one. The default
     // per-file budget already covers an ordinary source file whole.

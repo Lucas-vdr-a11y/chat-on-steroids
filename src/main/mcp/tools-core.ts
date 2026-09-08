@@ -1,5 +1,3 @@
-import { goalWorkerChat } from '../bridge.js';
-import { announceSessionFinish } from '../session/finish.js';
 import { getConfig } from '../config.js';
 /**
  * The Core connector: reading, changing and running code on this PC.
@@ -17,147 +15,118 @@ import { getConfig } from '../config.js';
  * conversation pays for.
  */
 
-import { rawPromises as fs } from '../rawfs.js';
 import nodeFs from 'node:fs';
 import nodePath from 'node:path';
 import { z } from 'zod';
-import { DEFAULT_READ_BYTES, MAX_READ_BYTES, formatBytes } from '../fsops.js';
-import { BinaryReadError, listDirectoryLevel, readTextFile, statInfo, walkFiles } from '../codex/read-backend.js';
-import {
-  VIEW_IMAGE_DESCRIPTION,
-  VIEW_IMAGE_PATH_DESCRIPTION,
-  ViewImageError,
-  viewImage
-} from '../codex/view-image.js';
-import { logInfo, logWarn } from '../logger.js';
-import { SandboxError, isNativeWindowsPath, resolvePath, strayVirtualPath } from '../sandbox.js';
-import { currentWorkspace } from '../workspace.js';
-import type { Capabilities, Root } from '../../shared/types.js';
 import type { FileChange } from '../../shared/session.js';
-import { REASONING_EFFORTS } from '../../shared/session.js';
-import { DEFAULT_EXCLUDES, MAX_CONTENT_FILE_BYTES, globToRegExp, search, searchOneFile } from '../search.js';
+import type { Capabilities, Root } from '../../shared/types.js';
 import {
-  ApplyPatchError,
-  PatchParseError,
-  executeApplyPatch,
-  parsePatch,
-  verifyApplyPatchArgs,
-  type AppliedPatchDelta,
-  type Hunk,
-  type PatchPathResolver
+swarmRunning
+} from '../agents.js';
+import {
+ApplyPatchError,
+PatchParseError,
+executeApplyPatch,
+parsePatch,
+verifyApplyPatchArgs,
+type AppliedPatchDelta,
+type Hunk,
+type PatchPathResolver
 } from '../codex/apply-patch/index.js';
-import { DEFAULT_APPLY_PATCH_FILE_UPDATE_MODE } from '../codex/apply-patch/mode.js';
 import { maybeParseApplyPatchForExec } from '../codex/apply-patch/invocation.js';
+import { DEFAULT_APPLY_PATCH_FILE_UPDATE_MODE } from '../codex/apply-patch/mode.js';
 import { composeCommandBatch, parseCommandBatchSections } from '../codex/command-batch.js';
 import { formatExecOutputForModel, newStreamOutput } from '../codex/exec-output.js';
 import { DEFAULT_TRUNCATION_POLICY, EXEC_OUTPUT_CEILING_POLICY, unifiedExecManager } from '../codex/manager.js';
 import {
-  backgroundExecObligations,
-  execOwnershipDenied,
-  forgetExecOwner,
-  MAX_UNREAD_EXEC_RESULTS_PER_CONVERSATION,
-  noteExecAttended,
-  noteExecOwner,
-  provenConversation,
-  provenSession
+MAX_UNREAD_EXEC_RESULTS_PER_CONVERSATION,
+backgroundExecObligations,
+execOwnershipDenied,
+forgetExecOwner,
+noteExecAttended,
+noteExecOwner
 } from '../codex/ownership.js';
-import {
-  UnifiedExecError,
-  applyUnifiedExecEnv,
-  execCommandResponseText,
-  execCommandStructuredOutput,
-  type ExecCommandToolOutput
-} from '../codex/unified-exec.js';
-import {
-  DEFAULT_EXEC_YIELD_TIME_MS,
-  DEFAULT_TTY,
-  DEFAULT_WRITE_STDIN_YIELD_TIME_MS
-} from '../codex/unified-exec-constants.js';
+import { BinaryReadError, listDirectoryLevel, readTextFile, statInfo, walkFiles } from '../codex/read-backend.js';
 import { defaultUserShell, deriveExecArgs, getShellByModelProvidedPath, shlexJoin } from '../codex/shell.js';
 import {
-  APPLY_PATCH_ARGUMENT_DESCRIPTION,
-  APPLY_PATCH_DESCRIPTION,
-  EXEC_COMMAND_CMD_DESCRIPTION,
-  EXEC_COMMAND_CMDS_DESCRIPTION,
-  EXEC_COMMAND_DESCRIPTION,
-  EXEC_COMMAND_LOGIN_DESCRIPTION,
-  EXEC_COMMAND_SHELL_DESCRIPTION,
-  EXEC_COMMAND_TTY_DESCRIPTION,
-  EXEC_COMMAND_WORKDIR_DESCRIPTION,
-  EXEC_COMMAND_YIELD_TIME_DESCRIPTION,
-  MAX_OUTPUT_TOKENS_DESCRIPTION,
-  MAX_OUTPUT_TOKENS_RETIRED_NOTE,
-  WRITE_STDIN_CHARS_DESCRIPTION,
-  WRITE_STDIN_DESCRIPTION,
-  WRITE_STDIN_SESSION_ID_DESCRIPTION,
-  WRITE_STDIN_YIELD_TIME_DESCRIPTION
+APPLY_PATCH_ARGUMENT_DESCRIPTION,
+APPLY_PATCH_DESCRIPTION,
+EXEC_COMMAND_CMDS_DESCRIPTION,
+EXEC_COMMAND_CMD_DESCRIPTION,
+EXEC_COMMAND_DESCRIPTION,
+EXEC_COMMAND_LOGIN_DESCRIPTION,
+EXEC_COMMAND_SHELL_DESCRIPTION,
+EXEC_COMMAND_TTY_DESCRIPTION,
+EXEC_COMMAND_WORKDIR_DESCRIPTION,
+EXEC_COMMAND_YIELD_TIME_DESCRIPTION,
+MAX_OUTPUT_TOKENS_DESCRIPTION,
+MAX_OUTPUT_TOKENS_RETIRED_NOTE,
+WRITE_STDIN_CHARS_DESCRIPTION,
+WRITE_STDIN_DESCRIPTION,
+WRITE_STDIN_SESSION_ID_DESCRIPTION,
+WRITE_STDIN_YIELD_TIME_DESCRIPTION
 } from '../codex/tool-specs.js';
+import {
+DEFAULT_EXEC_YIELD_TIME_MS,
+DEFAULT_TTY,
+DEFAULT_WRITE_STDIN_YIELD_TIME_MS
+} from '../codex/unified-exec-constants.js';
+import {
+UnifiedExecError,
+applyUnifiedExecEnv,
+execCommandResponseText,
+execCommandStructuredOutput,
+type ExecCommandToolOutput
+} from '../codex/unified-exec.js';
+import {
+VIEW_IMAGE_DESCRIPTION,
+VIEW_IMAGE_PATH_DESCRIPTION,
+ViewImageError,
+viewImage
+} from '../codex/view-image.js';
 import { lineDelta } from '../diffstat.js';
 import {
-  benignExitNote,
-  bindBundledRipgrep,
-  execRecoveryHints,
-  nonZeroExitIsBenign,
-  normalizePowerShellOperators,
-  normalizeShellCommand,
-  repairPowerShellQuoting,
-  withExecNotes
+benignExitNote,
+bindBundledRipgrep,
+execRecoveryHints,
+nonZeroExitIsBenign,
+normalizePowerShellOperators,
+normalizeShellCommand,
+repairPowerShellQuoting,
+withExecNotes
 } from '../exec-hints.js';
 import { childEnv } from '../exec.js';
+import { DEFAULT_READ_BYTES, MAX_READ_BYTES, formatBytes } from '../fsops.js';
+import { logInfo } from '../logger.js';
+import { rawPromises as fs } from '../rawfs.js';
 import { locateRipgrep } from '../ripgrep.js';
+import { SandboxError, isNativeWindowsPath, resolvePath, strayVirtualPath } from '../sandbox.js';
+import { DEFAULT_EXCLUDES, MAX_CONTENT_FILE_BYTES, globToRegExp, search, searchOneFile } from '../search.js';
 import { ensureDevToolchain } from '../toolchain.js';
-import {
-  agentForCaller,
-  currentRunId,
-  noteAgentContextTokens,
-  persistCriticalSwarmNow,
-  PRIME_ID,
-  requestWorkerBootstraps,
-  requestWorkerRevivals,
-  statusForCaller,
-  stageFinishAgent,
-  stageMessages,
-  stageSpawn,
-  swarmRunning,
-  swarmStateForCaller,
-  type Caller
-} from '../agents.js';
-import { repairPrimeFromResumeShadow } from '../session/continuation.js';
-import {
-  currentCall,
-  currentCaller,
-  noteChange,
-  noteChanges,
-  noteCount,
-  noteDetail,
-  noteExec
-} from './call-context.js';
-import {
-  awaitFreshCallOrigin,
-  recordAgentMessage
-} from '../session/recorder.js';
-import { findSessionByConversation } from '../session/store.js';
-import {
-  adoptAgent,
-  fail,
-  formatFileInfo,
-  friendlyError,
-  guard,
-  IDENTITY_EVIDENCE_MS,
-  PRIME_EVIDENCE_MS,
-  SPAWN_EVIDENCE_MS,
-  ok,
-  pathArg,
-  lineNumberArg,
-  resolveCwd,
-  resolveIn,
-  type SurfaceRegistrar,
-  type ToolResult
-} from './kernel.js';
-import { registerSessionTool as registerSessionSearchReadTool } from './session-tool.js';
+import { currentWorkspace } from '../workspace.js';
+import { downloadArtifactFile } from './artifact-download.js';
 import { ArtifactFetchError } from './artifact-fetch.js';
 import { ArtifactTargetError } from './artifact-target.js';
-import { downloadArtifactFile } from './artifact-download.js';
+import {
+noteChange,
+noteChanges,
+noteCount,
+noteDetail,
+noteExec
+} from './call-context.js';
+import {
+fail,
+formatFileInfo,
+friendlyError,
+guard,
+lineNumberArg,
+ok,
+pathArg,
+resolveCwd,
+resolveIn,
+type SurfaceRegistrar,
+type ToolResult
+} from './kernel.js';
 
 /** Entries one `read` of a directory returns before it says it stopped. */
 const MAX_DIR_ENTRIES = 200;
@@ -232,18 +201,8 @@ function execChildEnvironment(): NodeJS.ProcessEnv {
 }
 
 /** Resolve the stable local session once so exec admission and later ownership cannot disagree. */
-async function execSession(tool: 'exec_command' | 'write_stdin'): Promise<string | null> {
-  let conversationId = provenConversation(currentCaller().requestId, currentCaller().conversationId);
-  const call = currentCall();
-  if (!conversationId && call?.caller.requestId) {
-    conversationId = await awaitFreshCallOrigin(tool, call.startedAt, IDENTITY_EVIDENCE_MS, {
-      requestId: call.caller.requestId
-    });
-    if (conversationId) call.caller.conversationId = conversationId;
-  }
-  const sessionId = provenSession(currentCaller().requestId, currentCaller().sessionId ?? null);
-  if (call) call.caller.sessionId = sessionId;
-  return sessionId;
+async function execSession(_tool: 'exec_command' | 'write_stdin'): Promise<string | null> {
+  return null;
 }
 
 export function registerCoreTools(reg: SurfaceRegistrar): void {
@@ -1048,543 +1007,7 @@ export function registerCoreTools(reg: SurfaceRegistrar): void {
     );
   }
 
-  // ---------------------------------------------------------------- session
-
-  if (reg.sessionToolsExposed) registerSessionSearchReadTool(reg);
-  if (reg.ctx.exposedFinishTool ?? getConfig().ui.finishTool === true) {
-    reg.register('session_finish', {
-      description: 'For Astra only. Use this tool only when a user prompt explicitly requests it. Signal that you are approaching task completion; receive queued user instructions before any finish action. While HELD, follow attached instructions and call again before finishing. Each call waits at most 25 seconds.',
-      inputSchema: z.object({ summary: z.string().min(1).max(1000) }),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
-    }, async ({ summary }) => {
-      if (!getConfig().ui.finishTool) return { content: [{ type: 'text' as const, text: 'RELEASED: The user disabled finish hold. You may write your final answer.' }] };
-      const caller = currentCaller();
-      if (!caller.sessionId || !caller.conversationId) return fail('Exact session identity is required');
-      if (goalWorkerChat(caller.conversationId)) return fail('Session finish hold is not applicable to workers or decision helpers. Workers report with agents action=finish; decision helpers answer normally.');
-      return guard('session_finish', async () => ({ content: [{ type: 'text', text: await announceSessionFinish(caller.sessionId!, summary) }] }));
-    });
-  }
-
-
-  // ----------------------------------------------------------------- agents
-
-  if (reg.agentToolsExposed) registerAgentsTool(reg);
 }
-
-
-// ---------------------------------------------------------------------------
-// agents
-// ---------------------------------------------------------------------------
-
-/**
- * One tool, four actions, registered only while multi-agent mode is on. Fresh installs enable
- * it; existing configs keep their stored choice, so a user who has it off never sees this schema.
- *
- * The identity model is the whole design, and it is the same one for every role: an agent *is*
- * the ChatGPT conversation it runs in. A chat becomes the prime by spawning from its own proven
- * conversation; a worker is the chat the app opened for its slot, bound and activated by the
- * extension's report before the model there reads its task. Neither is anything the model can
- * assert, so there is no key to carry, no takeover, no promotion and no inference — a call this
- * app cannot place is refused rather than guessed at, and a chat that is not in the run learns
- * only that a run exists.
- *
- * There is no `join`, and no key field anywhere in this schema. There used to be one manual
- * recovery action for the case where the extension's binding report was lost: it was a second
- * way to become a worker, it was the only thing in the app that put a credential into a model's
- * hands, and a run whose binding report never arrived is better restarted than repaired.
- *
- * Every result here also carries `structuredContent`. The text half is what the model should
- * act on and is kept to a sentence or two; ids, states and counts are machine state and belong
- * in a shape the caller can read without parsing English.
- */
-/**
- * Re-measures how full each sleeping worker's chat is, before the prime may wake one.
- *
- * The context ceiling is what makes a stop final, and it is measured from the app's own
- * durable session for that conversation rather than from anything a model reported. The
- * broker keeps the figure in memory and in its snapshot, but a chat that grew while this app
- * was not running — or one whose snapshot predates the measurement entirely — would otherwise
- * be woken into a conversation with no room left in it. Reading it here, on the one call that
- * can wake a worker, is what makes the ceiling survive a crash rather than a restart quietly
- * handing back a worker the prime was already told was finished.
- */
-async function measureSleepingWorkers(caller: Caller): Promise<void> {
-  for (const info of swarmStateForCaller(caller).agents) {
-    if (info.role !== 'worker' || info.state !== 'sleeping' || !info.conversationId) continue;
-    const summary = await findSessionByConversation(info.conversationId, { requireUnique: true }).catch(() => null);
-    if (summary) noteAgentContextTokens(info.conversationId, summary.contextTokens);
-  }
-  // Measurement is usually telemetry, but crossing the worker ceiling revokes durable revival
-  // authority and can terminalize a parked worker. `status` also calls this helper, so there is
-  // no later message/spawn acceptance barrier we can rely on: make every critical revision seen
-  // through the end of measurement durable before publishing the resulting state to the model.
-  try {
-    if (!(await persistCriticalSwarmNow())) {
-      throw new Error('the broker has no immediate durable persistence sink');
-    }
-  } catch (error) {
-    throw new Error(
-      `Worker context/revival state could not cross its durable barrier. Retry the agents call. (${error instanceof Error ? error.message : String(error)})`
-    );
-  }
-}
-
-function registerAgentsTool(reg: SurfaceRegistrar): void {
-  reg.register(
-    'agents',
-    {
-      title: 'Multi-agent run',
-      description:
-        'Run ChatGPT workers. Reuse a suitable sleeping worker with message before spawn; spawn creates fresh worker chats for new parallel work. Sleeping/terminal workers stay in this prime conversation’s durable history. ' +
-        'message: prime→worker or worker→prime; messaging a sleeping worker revives that exact existing chat when a slot is free. Replies arrive on later tool results, so never poll. ' +
-        'status shows this prime’s full worker history, including sleeping/revivable and terminal/non-revivable workers, even while no run is active. finish reports a worker result and normally puts it to sleep.',
-      inputSchema: z.object({
-        action: z.enum(['spawn', 'message', 'status', 'finish']).describe('What to do.'),
-        context: z
-          .string()
-          .max(4000)
-          .optional()
-          .describe(
-            'spawn: shared instructions prepended to every task, e.g. repo, conventions, edit limits and validation.'
-          ),
-        workers: z
-          .array(
-            z.object({
-              label: z.string().max(60).optional().describe('Short name shown to the user, e.g. "Security".'),
-              task: z
-                .string()
-                .min(1)
-                .max(4000)
-                .describe(
-                  'This worker\'s job: objective, relevant files, constraints and expected handoff.'
-                ),
-              model: z
-                .string()
-                .max(80)
-                .optional()
-                .describe(
-                  'ChatGPT model slug for this worker only, e.g. to keep an expensive model for yourself. Omit for the default set in app settings.'
-                ),
-              reasoning_effort: z
-                .enum(REASONING_EFFORTS)
-                .optional()
-                .describe(
-                  'How much reasoning this worker uses. Independent of model: it never selects or changes one. Omit for the default set in app settings.'
-                )
-            }).strict()
-          )
-          .min(1)
-          .max(8)
-          .optional()
-          .describe(
-            'spawn: fresh workers to create only after checking status for a suitable sleeping worker; revive one explicitly with message.'
-          ),
-        messages: z
-          .array(
-            z.object({
-              to: z.string().min(1).max(40).describe('Recipient.'),
-              text: z.string().min(1).max(4000).describe('What to say.')
-            }).strict()
-          )
-          .min(1)
-          .max(16)
-          .optional()
-          .describe(
-            'message: atomic batch; prefer this to one call per recipient.'
-          ),
-        to: z
-          .string()
-          .min(1)
-          .max(40)
-          .optional()
-          .describe('message: one recipient; messaging a sleeping worker wakes it.'),
-        text: z.string().min(1).max(4000).optional().describe('message: what to say.'),
-        result: z
-          .string()
-          .min(1)
-          .max(4000)
-          .optional()
-          .describe(
-            'finish: factual handoff under RESULT / CHANGES / VALIDATION / BLOCKERS.'
-          )
-      })
-      .superRefine((input, ctx) => {
-        const reject = (field: 'context' | 'workers' | 'messages' | 'to' | 'text' | 'result', message: string): void => {
-          if (input[field] !== undefined) ctx.addIssue({ code: 'custom', path: [field], message });
-        };
-        if (input.action !== 'spawn') {
-          reject('context', 'context is only valid with action=spawn');
-          reject('workers', 'workers is only valid with action=spawn');
-        }
-        if (input.action !== 'message') {
-          reject('messages', 'messages is only valid with action=message');
-          reject('to', 'to is only valid with action=message');
-          reject('text', 'text is only valid with action=message');
-        }
-        if (input.action !== 'finish') reject('result', 'result is only valid with action=finish');
-      })
-      .strict(),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
-    },
-    async (input) => {
-      // One clock for one MCP call. The dispatcher owns startedAt and the recorder later uses
-      // that exact value to consume any page request reserved while proving caller identity.
-      // Taking a second Date.now() here made callerNow reserve evidence under one timestamp
-      // and recordToolCall look for it under another, leaving the first request permanently
-      // reserved until TTL and breaking the very next worker control call.
-      const startedAt = currentCall()?.startedAt ?? Date.now();
-      return guard('agents', async () => {
-        if (!reg.agentToolsLive) return reg.featureDisabled('Multi-agent mode', 'Multi-agent mode (experimental)');
-
-        if (input.action === 'spawn') {
-          if (!input.workers) return fail('agents action=spawn requires workers.');
-          // One atomic operation: it either claims this exact conversation as prime and
-          // creates the workers, or it creates nothing at all. There is no "create the
-          // workers and find out who the prime was later" — that ordering is what produced a
-          // run whose workers could talk to a prime nobody could authenticate as.
-          //
-          // And the identity behind it is the exact kind: a generic connector row would let
-          // an uninvolved chat that happened to call something else in the same window
-          // become the prime of this run.
-          const staged = stageSpawn({
-            workers: input.workers,
-            context: input.context ?? null,
-            caller: await callerNow(startedAt, { exact: true })
-          });
-          let accepted = false;
-          try {
-            let durable = false;
-            try {
-              durable = await persistCriticalSwarmNow();
-            } catch (error) {
-              throw new Error(
-                `The worker run could not cross its durable acceptance barrier. The spawn was rolled back; retry this same request. (${error instanceof Error ? error.message : String(error)})`
-              );
-            }
-            if (!durable) {
-              throw new Error(
-                'The worker run could not cross its durable acceptance barrier. The spawn was rolled back; retry this same request.'
-              );
-            }
-            staged.commit();
-            accepted = true;
-          } catch (error) {
-            if (!accepted) staged.rollback();
-            throw error;
-          }
-          const { created, becamePrime, runId } = staged;
-          // Browser tabs are a publication side effect, never part of planning. They become
-          // visible only after the exact broker revision above is durable.
-          requestWorkerBootstraps(created.map((worker) => worker.id), runId);
-          await adoptAgent(PRIME_ID);
-          const invited = created.filter((worker) => worker.state === 'invited');
-          const sleeping = created.filter((worker) => worker.state === 'sleeping' && worker.revivable);
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text:
-                  (becamePrime ? `This conversation is now the prime agent of run ${runId}. ` : '') +
-                  `${created.length} worker(s) matched: ${created.map((info) => `${info.id} (${info.label}, ${info.state}${info.model ? `, model ${info.model}` : ''}${info.reasoningEffort ? `, reasoning ${info.reasoningEffort}` : ''})`).join(', ')}. ` +
-                  (invited.length > 0 ? 'New worker chats are opening with their briefs already in them. ' : '') +
-                  (sleeping.length > 0
-                    ? `${sleeping.map((worker) => worker.id).join(', ')} already finished that earlier piece and is sleeping in its existing chat; wake it with action=message instead of spawning a duplicate. `
-                    : '') +
-                  'Carry on with your own work — results and ' +
-                  'messages arrive at the end of later tool results, so there is nothing to wait for and never anything ' +
-                  'to poll. A short correction with action=message while a worker is still going is far cheaper than ' +
-                  'the alternative.'
-              }
-            ],
-            structuredContent: {
-              action: 'spawn',
-              run_id: runId,
-              self: PRIME_ID,
-              became_prime: becamePrime,
-              workers: created.map((info) => ({ id: info.id, label: info.label, state: info.state, model: info.model, reasoning_effort: info.reasoningEffort }))
-            }
-          };
-        }
-
-        if (input.action === 'message') {
-          // Two spellings of one operation. A single message is the common case and stays a
-          // pair of scalars; `messages` is the same thing in bulk. Both in one call is a
-          // request whose intended order nobody can read, so it is refused rather than
-          // guessed at.
-          const batch = input.messages ?? [];
-          const single = input.to && input.text ? [{ to: input.to, text: input.text }] : [];
-          if (batch.length > 0 && single.length > 0) {
-            return fail('agents action=message takes either to+text or messages, not both.');
-          }
-          const items = batch.length > 0 ? batch : single;
-          if (items.length === 0) return fail('agents action=message requires to and text, or a messages array.');
-          // Before any slot is reserved: a sleeping worker whose chat has since crossed the
-          // context ceiling is not revivable, and this is the call that would otherwise wake it.
-          const caller = await callerNow(startedAt);
-          await measureSleepingWorkers(caller);
-          // One call, one identity resolution, one all-or-nothing delivery: a prime
-          // redirecting its whole run cannot end up with two of its three messages sent.
-          const staged = stageMessages(caller, items);
-          let accepted = false;
-          try {
-            let durable = false;
-            try {
-              durable = await persistCriticalSwarmNow();
-            } catch (error) {
-              throw new Error(
-                `The agent message could not cross its durable acceptance barrier. Nothing was queued; retry the same message request. (${error instanceof Error ? error.message : String(error)})`
-              );
-            }
-            if (!durable) {
-              throw new Error('The agent message could not cross its durable acceptance barrier. Nothing was queued; retry the same message request.');
-            }
-            staged.commit();
-            accepted = true;
-          } catch (error) {
-            if (!accepted) staged.rollback();
-            throw error;
-          }
-          const sent = staged.messages;
-          const woken = staged.waking;
-          // Reopening a sleeping worker's chat is a browser side effect, so it happens only
-          // after the broker revision that reserved its slot is durable — exactly as a spawn's
-          // tabs do. Nothing has been typed into that chat yet at this point.
-          const runId = caller.conversationId ? currentRunId(caller.conversationId) : null;
-          if (woken.length > 0 && runId) requestWorkerRevivals(woken, runId);
-          for (const message of sent) await recordAgentMessage(message, 'sent', caller.conversationId);
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text:
-                  `Queued for ${sent.map((message) => message.to).join(', ')}. ` +
-                  (woken.length > 0
-                    ? `${woken.join(', ')} ${woken.length === 1 ? 'was' : 'were'} asleep and ${woken.length === 1 ? 'is' : 'are'} ` +
-                      'being woken in the same chat, with everything already known there still in it; your message is ' +
-                      'the next thing it reads. '
-                    : '') +
-                  'Carry on with the work — a reply, if there is one, arrives at the end of a later tool result.'
-              }
-            ],
-            structuredContent: {
-              action: 'message',
-              queued: sent.map((message) => ({ id: message.id, to: message.to })),
-              waking: woken
-            }
-          };
-        }
-
-        if (input.action === 'finish') {
-          if (!input.result) {
-            return fail(
-              'agents action=finish requires result: the report the prime reads in your place — what you changed, what you verified and what is left. Send it as result and call finish again.'
-            );
-          }
-          const staged = stageFinishAgent(await callerNow(startedAt), input.result);
-          let accepted = staged.repeat;
-          try {
-            if (!staged.repeat) {
-              let durable = false;
-              try {
-                durable = await persistCriticalSwarmNow();
-              } catch (error) {
-                throw new Error(
-                  `The worker finish could not cross its durable acceptance barrier. Nothing was published; retry the same finish result. (${error instanceof Error ? error.message : String(error)})`
-                );
-              }
-              if (!durable) {
-                throw new Error(
-                  'The worker finish could not cross its durable acceptance barrier. Nothing was published; retry the same finish result.'
-                );
-              }
-              staged.commit();
-              accepted = true;
-            }
-          } catch (error) {
-            if (!accepted) staged.rollback();
-            throw error;
-          }
-          const { info, report, repeat } = staged;
-          if (report) await recordAgentMessage(report, 'sent', info.conversationId);
-          // A retry is answered as a retry. Repeating "marked finished" would read as a
-          // second finish and invite the model to keep going until it gets a different
-          // answer, which is how one lost result became a queue of identical reports.
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: repeat
-                  ? `${info.id} was already ${info.state} and the prime agent already has that result, so nothing was ` +
-                    'sent again. Stop working and stop calling tools.'
-                  : info.state === 'finished'
-                    ? `${info.id} is finished. The prime agent has your result. This chat has also reached its context ` +
-                      'limit, so there will be no more work in it: stop working and stop calling tools.'
-                    : `${info.id} reported and is now asleep but remains reusable. The prime agent has your result and ` +
-                      'your worker slot is free. Stop working and stop calling tools; for related follow-up work the ' +
-                      'prime should wake this same chat with agents action=message before spawning a replacement.'
-              }
-            ],
-            structuredContent: { action: 'finish', self: info.id, state: info.state, repeat }
-          };
-        }
-
-        // status. Read-only, and deliberately small: it is the run as its own members see it,
-        // and `identify` is what decides whether this caller is one of them. An unrelated
-        // chat is told AGENTS_BUSY and nothing else — not who the prime is, not how many
-        // workers there are, not what any of them are doing.
-        const caller = await callerNow(startedAt);
-        await measureSleepingWorkers(caller);
-        const status = statusForCaller(caller);
-        const me = status.self;
-        const state = status.state;
-        const failed = state.agents.filter((info) => info.state === 'failed');
-        // The word the model reads here is the whole answer to "may I use this worker again".
-        // A sleeping worker is not a spent one, and calling it finished in this table is what
-        // sends a prime off to spawn a fourth chat for work its first worker already knows the
-        // background to.
-        const shown = (info: { state: string; revivable: boolean }): string =>
-          info.state === 'sleeping'
-            ? info.revivable
-              ? 'sleeping (reusable; wake with action=message)'
-              : 'sleeping'
-            : info.state === 'waking'
-              ? 'waking (your message is being delivered to its chat)'
-              : info.state === 'finished'
-                ? 'finished (not reusable)'
-              : info.state;
-        const asleep = state.agents.filter((info) => info.state === 'sleeping' && info.revivable);
-        const slots = status.freeWorkerSlots;
-        // The recording id is what `session action=read` wants, and a prime that lacks it
-        // searches recordings by the task text instead — a hundred such searches in the 50
-        // most recent recorded sessions, each answering with the prime's own chat as well.
-        const recordings = new Map<string, string>();
-        for (const info of state.agents) {
-          if (info.id === me.id || !info.conversationId) continue;
-          const summary = await findSessionByConversation(info.conversationId, { requireUnique: true }).catch(() => null);
-          if (summary) recordings.set(info.id, summary.id);
-        }
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text:
-                `You are ${me.id}.\n` +
-                state.agents
-                  .map(
-                    (info) =>
-                      `${info.id}  ${info.role}  ${shown(info)}  waiting ${info.pending}  ${info.label}` +
-                      (info.model ? `  model ${info.model}` : '') +
-                      (info.reasoningEffort ? `  reasoning ${info.reasoningEffort}` : '') +
-                      (recordings.has(info.id) ? `\n    recording: ${recordings.get(info.id)}` : '') +
-                      (info.result
-                        ? `\n    ${info.state === 'failed' ? 'failure' : info.state === 'finished' ? 'result' : 'latest result'}: ${info.result.slice(0, 300)}`
-                        : '')
-                  )
-                  .join('\n') +
-                (recordings.size > 0
-                  ? '\n\nTo see what a worker is doing, session action=read with its recording id; pass the update_cursor from that read next time to get only what is new.'
-                  : '') +
-                (me.id === PRIME_ID
-                  ? `\n\n${slots} of your worker slots ${slots === 1 ? 'is' : 'are'} free.` +
-                    (asleep.length > 0
-                      ? ` REUSE FIRST: ${asleep.map((info) => info.id).join(', ')} ${asleep.length === 1 ? 'is' : 'are'} asleep and ` +
-                        'can be woken with agents action=message, in the chat they already have and with everything ' +
-                        'they learned there still in it. For related follow-up work, do this before action=spawn' +
-                        (slots === 0 ? ', once a slot frees up.' : '.')
-                      : '')
-                  : '') +
-                // Said in words as well as in the table: a failed worker will not report, and
-                // waiting for it is the mistake this line prevents.
-                (failed.length > 0
-                  ? `\n\n${failed.map((info) => info.id).join(', ')} will not report. Do that work yourself or wake ` +
-                    'another worker; do not wait for them.'
-                  : '') +
-                // A status check is a glance, not a stopping point. Without this the table reads
-                // like an answer to hand back to the user, and a prime that has just looked at its
-                // workers stops mid-run to report what it saw.
-                '\n\nThis is the current stats, keep working.'
-            }
-          ],
-          structuredContent: {
-            action: 'status',
-            run_id: status.runId,
-            self: me.id,
-            free_worker_slots: slots,
-            agents: state.agents.map((info) => ({
-              id: info.id,
-              role: info.role,
-              label: info.label,
-              model: info.model,
-              reasoning_effort: info.reasoningEffort,
-              state: info.state,
-              revivable: info.revivable,
-              waiting: info.pending,
-              result: info.result ?? null
-            }))
-          }
-        };
-      });
-    }
-  );
-}
-
-/**
- * Who is making this `agents` call, established for this call alone.
- *
- * The prime holds no credential by design, and the dispatcher deliberately hands ordinary
- * tool calls no authority from "the only chat that has been active lately" — that is not
- * proof that the chat made this call, and stale page state once authenticated prime calls as
- * worker-1. So identity is proven here per call by joining ChatGPT's inbound MCP HTTP
- * `x-request-id` to the same request id reported from one concrete conversation's message
- * model. The page evidence may arrive just before or just after the MCP request; the id, not
- * timing, is the join. If its exact mate never appears, the broker refuses the operation.
- * Missing request-id evidence never falls back to a visible row, active/generating chat,
- * agent key, or recent browser state.
- *
- * The proven identity is then adopted for the rest of the call, so this result is recorded
- * against the right agent and carries the right inbox.
- */
-async function callerNow(startedAt: number, options: { exact?: boolean } = {}): Promise<Caller> {
-  const base = currentCaller();
-  // `exact` marks the one action that binds a run: spawn. It is the call whose refusal the
-  // model cannot absorb, so it gets the longer ceiling; every other `agents` action can be
-  // declined and asked again on the next tool call.
-  const window = base.requestId ? (options.exact ? SPAWN_EVIDENCE_MS : IDENTITY_EVIDENCE_MS) : PRIME_EVIDENCE_MS;
-  const resolved =
-    base.conversationId ??
-    (await awaitFreshCallOrigin('agents', startedAt, window, {
-      ...options,
-      // ChatGPT's own id for this request, when it sent one. It names the conversation
-      // outright, so two workers calling at the same moment are no longer a hard case.
-      requestId: base.requestId
-    }));
-  const caller: Caller = {
-    ...base,
-    conversationId: resolved
-  };
-  if (resolved) {
-    const call = currentCall();
-    if (call) call.caller.conversationId = resolved;
-    // A pre-fix Compact & Resume can leave this exact app-opened replacement chat with its own
-    // shadow session while the reusable-worker run is still bound to the source chat. Repair
-    // only that durably-proven historical failure before membership is evaluated; unrelated
-    // conversations still hit AGENTS_BUSY exactly as before.
-    await repairPrimeFromResumeShadow(resolved);
-  }
-  if (!resolved) {
-    logWarn(
-      base.requestId
-        ? `agents caller not identified: no page evidence matched HTTP request ${base.requestId.slice(0, 20)}…`
-        : 'agents caller not identified: this MCP request carried no request id and page evidence was insufficient'
-    );
-  }
-  await adoptAgent(agentForCaller(caller));
-  return caller;
-}
-
-// ---------------------------------------------------------------------------
-// apply_patch adapter helpers
-// ---------------------------------------------------------------------------
 
 function applyPatchErrorText(error: unknown): string {
   return error instanceof PatchParseError || error instanceof ApplyPatchError ? error.message : friendlyError(error);

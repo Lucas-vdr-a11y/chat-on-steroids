@@ -320,10 +320,3 @@ writeFileSync(path.join(root, 'build', 'runtime-icon.png'), pngFor(256));
 console.log(
   `Wrote build/icon.ico (${ICO_SIZES.join(', ')}), build/icon.png, build/icon-preview.png and build/runtime-icon.png`
 );
-
-const iconsDir = path.join(root, 'extension', 'icons');
-mkdirSync(iconsDir, { recursive: true });
-for (const size of EXTENSION_SIZES) {
-  writeFileSync(path.join(iconsDir, `icon${size}.png`), pngFor(size));
-}
-console.log(`Wrote extension/icons/icon{${EXTENSION_SIZES.join(',')}}.png`);

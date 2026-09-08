@@ -1,84 +1,39 @@
-import { requestSessionFinishGoal, setFinishNotifier } from './session/finish.js';
 /**
  * Main process entry: window, tray, and the security posture for the renderer.
  */
 
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, screen, session, Tray } from 'electron';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { app, Notification, BrowserWindow, Menu, Tray, nativeImage, nativeTheme, screen, session } from 'electron';
-import { getConfig, initConfigPath, loadConfig } from './config.js';
-import { connect, disconnect, getStatus, onStatusChange, shutdownConnection } from './connection.js';
-import { registerIpc } from './ipc.js';
-import { getChatModels, restoreChatModels, startChatModelDiscovery } from './chat-models.js';
-import { initLogFile, logError, logInfo, logWarn } from './logger.js';
 import { unifiedExecManager } from './codex/manager.js';
-import { initSecretsPath } from './secrets.js';
-import { pluginManager } from './plugins/manager.js';
-import { setBrowserOpener, setBrowserWorkArea, shutdownBridge, startBridge } from './bridge.js';
-import { flushSessions, initSessionStore, pruneSessions } from './session/store.js';
-import {
-  flushRecorder,
-  queueDeterministicAttributionRepair,
-  setAgentBinder,
-  setAgentConversationLookup
-} from './session/recorder.js';
-import {
-  agentConversation,
-  bindConversation,
-  onRetiredWorkersPersist,
-  onRetiredWorkersPersistNow,
-  onSwarmPersist,
-  onSwarmPersistNow,
-  pauseSwarmForDisable,
-  repairPrimeConversationAfterRecovery,
-  restoreRetiredWorkers,
-  restoreSwarm,
-  snapshotRetiredWorkers,
-  snapshotSwarm,
-  type RetiredWorkersSnapshot,
-  type SwarmSnapshot
-} from './agents.js';
-import { flushDurable, initDurableStore, readDurable, writeDurableNow, writeDurableSoon } from './durable.js';
-import { restoreRequestCorrelations } from './session/correlation.js';
-import { restoreBlockedChats } from './session/blocked-chats.js';
 import { stopComputerHelper } from './computer/index.js';
-import {
-  GOAL_OBJECTIVES_STATE,
-  GOAL_REPLIES_STATE,
-  GOAL_SWITCHES_STATE,
-  restoreGoalObjectives,
-  restoreGoalReplies,
-  restoreGoalSwitches,
-  type GoalObjectivesSnapshot,
-  type GoalRepliesSnapshot,
-  type GoalSwitchesSnapshot
-} from './goal.js';
-import {
-  CONTINUATIONS_STATE,
-  restoreContinuations,
-  setContinuationRecoveryHooks,
-  type ContinuationSnapshot
-} from './session/continuation.js';
-import { startSessionRetentionMaintenance } from './session/retention.js';
+import { getConfig, initConfigPath, loadConfig, updateConfig } from './config.js';
+import { connect, disconnect, getStatus, onStatusChange, shutdownConnection } from './connection.js';
+import { flushDurable, initDurableStore } from './durable.js';
+import { editContextMenuTemplate } from './edit-context-menu.js';
+import { registerIpc } from './ipc.js';
+import { initLogFile, logError, logInfo, logWarn } from './logger.js';
+import { pluginManager } from './plugins/manager.js';
+import { uniqueRootName, validateNewRoot } from './sandbox.js';
+import { initSecretsPath, setSecret } from './secrets.js';
+import { initSessionStore } from './session/store.js';
 import { runShutdownSequence } from './shutdown.js';
-import { applyStagedUpdate, startUpdateChecks } from './update.js';
-import { UI_BASE_ZOOM, windowLayoutForWorkArea, titleBarOverlayForTheme } from './window-layout.js';
-import { openInPreferredBrowser } from './browser.js';
-import {
-  applyLoginStartup,
-  isBackgroundLaunch,
-  createWindowActivationGate,
-  ownsAppRuntime,
-  registerNativeWindowActivation,
-  shouldBeginAppBootstrap,
-  shouldQuitOnWindowAllClosed
-} from './window-lifecycle.js';
 import { trayGuidArgsForPlatform, trayImageSpec } from './tray-image.js';
 import { browserWindowIconPath } from './window-icon.js';
-import { editContextMenuTemplate } from './edit-context-menu.js';
+import { titleBarOverlayForTheme, UI_BASE_ZOOM, windowLayoutForWorkArea } from './window-layout.js';
+import {
+applyLoginStartup,
+createWindowActivationGate,
+isBackgroundLaunch,
+ownsAppRuntime,
+registerNativeWindowActivation,
+shouldBeginAppBootstrap,
+shouldQuitOnWindowAllClosed
+} from './window-lifecycle.js';
 
 /** Durable state file holding the multi-agent run. Hashes only, never credentials. */
-const SWARM_STATE = 'swarm';
-const RETIRED_WORKERS_STATE = 'retired-workers';
+
+
 
 let window: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -88,6 +43,8 @@ let shutdownComplete = false;
 let stopSessionRetention: (() => void) | null = null;
 
 // One instance only: two copies would fight over the tunnel and the config file.
+app.setName('Chat On Steroids Local');
+app.setPath('userData', path.join(app.getPath('appData'), 'Chat On Steroids Local'));
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   // `app.quit()` does not make the rest of this module stop executing. Mark this process as a
@@ -112,7 +69,7 @@ function createWindow(): void {
     } : {}),
     // Painted before the renderer loads, so a dark window never flashes white.
     backgroundColor: getConfig().ui.theme === 'dark' ? '#0e0e11' : '#ffffff',
-    title: 'Chat On Steroids',
+    title: 'Chat On Steroids Local',
     webPreferences: {
       zoomFactor: UI_BASE_ZOOM,
       preload: path.join(__dirname, '../preload/index.js'),
@@ -127,12 +84,6 @@ function createWindow(): void {
 
   if (process.platform === 'win32') window.removeMenu();
 
-  // First use discovers the account once. A restored catalog is immediately usable;
-  // showing the window again cannot refresh it or open another browser attempt.
-  window.on('show', () => {
-    if (!quitting && getChatModels().state === 'unknown') void startChatModelDiscovery(true)
-      .catch(error => logWarn(`model discovery on window open: ${error.message}`));
-  });
   window.once('ready-to-show', () => {
     // A renderer can finish loading after Cmd+Q has already entered bounded teardown. Never let
     // that late native event make the app visible again while `will-quit` is draining.
@@ -207,28 +158,6 @@ function showWindow(): void {
   window.focus();
 }
 
-setFinishNotifier((title, body, sessionId, turnId) => {
-  if (window?.isFocused() || !Notification.isSupported()) return false;
-  const write = (): void => {
-    showWindow();
-    if (!window) return;
-    const target = window.webContents;
-    const open = (): void => { if (!target.isDestroyed()) target.send('session:write', sessionId); };
-    if (target.isLoadingMainFrame()) target.once('did-finish-load', open); else open();
-  };
-  const notice = new Notification({ title, body, actions: [
-    { type: 'button', text: 'Send Automatic Goal' }, { type: 'button', text: 'Write Directly' }
-  ] });
-  notice.on('click', write);
-  notice.on('action', (details) => {
-    if (details.actionIndex === 0) void requestSessionFinishGoal(sessionId, turnId).catch(error => logWarn(`Finish goal: ${error.message}`));
-    else if (details.actionIndex === 1) write();
-  });
-  notice.show();
-  return true;
-});
-setBrowserWorkArea(() => screen.getPrimaryDisplay().workArea);
-
 // Electron promises `second-instance` only after its own `ready`, not after our async startup.
 // Until CSP/permission handlers and IPC are installed below, a re-launch is only a focus request
 // for the initial window that startup is already going to show, so do not construct one early.
@@ -294,9 +223,25 @@ void app.whenReady().then(async () => {
   initSecretsPath(userData);
   initSessionStore(userData);
   initDurableStore(userData);
-  await restoreChatModels();
+
   if (windowActivation.isDisabled()) return;
   await loadConfig();
+  // Explicit first-run CLI import; credentials never enter argv or the renderer.
+  if (process.env.COS_IMPORT_TUNNEL_KEY_FILE && process.env.COS_IMPORT_TUNNEL_ID) {
+    const key = (await readFile(process.env.COS_IMPORT_TUNNEL_KEY_FILE, 'utf8')).trim();
+    await setSecret('openaiApiKey', key);
+    await updateConfig(async config => {
+      const roots = [...config.roots];
+      if (process.env.COS_IMPORT_ROOT) {
+        const real = await validateNewRoot(process.env.COS_IMPORT_ROOT, roots);
+        if (!roots.some(root => root.path === real)) roots.push({ name: uniqueRootName(real, roots), path: real });
+      }
+      return { ...config, roots, tunnel: { ...config.tunnel, tunnelId: process.env.COS_IMPORT_TUNNEL_ID! } };
+    });
+    delete process.env.COS_IMPORT_TUNNEL_KEY_FILE;
+    delete process.env.COS_IMPORT_TUNNEL_ID;
+    delete process.env.COS_IMPORT_ROOT;
+  }
   await pluginManager.initialize(userData);
   if (windowActivation.isDisabled()) return;
   try { applyLoginStartup(app, getConfig().ui.startAtLogin === true); }
@@ -305,83 +250,6 @@ void app.whenReady().then(async () => {
   // user choice instead of Electron's default `system` theme. On macOS this controls the window
   // frame, application menus and OS dialogs; on Linux/Windows it covers Electron-native UI.
   nativeTheme.themeSource = getConfig().ui.theme;
-  const savedGoalObjectives = await readDurable<GoalObjectivesSnapshot>(GOAL_OBJECTIVES_STATE);
-  if (windowActivation.isDisabled()) return;
-  restoreGoalObjectives(savedGoalObjectives);
-  const savedGoalSwitches = await readDurable<GoalSwitchesSnapshot>(GOAL_SWITCHES_STATE);
-  if (windowActivation.isDisabled()) return;
-  restoreGoalSwitches(savedGoalSwitches);
-  const savedGoalReplies = await readDurable<GoalRepliesSnapshot>(GOAL_REPLIES_STATE);
-  if (windowActivation.isDisabled()) return;
-  restoreGoalReplies(savedGoalReplies);
-  // Request ownership must exist before either side of the bridge can race in. A request id
-  // that was proved yesterday remains the same workflow today even if its ChatGPT tab closed.
-  await restoreRequestCorrelations();
-  if (windowActivation.isDisabled()) return;
-  // And the user's blocks, for the same reason: a chat blocked yesterday is still the rogue
-  // turn today, and a block that loads after the first call is a tool the turn already got.
-  await restoreBlockedChats();
-  if (windowActivation.isDisabled()) return;
-  setAgentConversationLookup(agentConversation);
-  // The prime's chat is the user's own, so no extension report can name it. It is bound
-  // when the recorder manages to place the prime's first call. See recordToolCall.
-  setAgentBinder(bindConversation);
-  // Before anything can call an agent tool, and before a run is restored: the broker
-  // decides whether a previous run has been abandoned partly from which ChatGPT tabs are
-  // open, and without this it can only answer "I cannot see" — which it treats, on
-  // purpose, as a reason to leave the existing run alone.
-  // How a fresh chat opens when no browser can be asked to open it. The app asks the OS for
-  // the ChatGPT URL, which launches the browser if it is closed and creates the tab if there
-  // is none — the two cases the old "wait for a ChatGPT tab to poll us" delivery could never
-  // handle. Wired before any restored command is delivered, so a resume queued yesterday opens
-  // as soon as the bridge starts rather than waiting for the user to visit ChatGPT.
-  //
-  // It is deliberately not how a page-driven Compact & Resume opens chat B. The OS resolves a
-  // URL to whichever browser instance last had focus, which is a different window — and can be
-  // a browser without this extension in it — from the one holding chat A. That decision belongs
-  // to the browser that owns the source chat; see bridge.ts::offerPlacement.
-  setBrowserOpener(async (url) => {
-    // Let the command owner report launch failure; another browser may belong to another account.
-    await openInPreferredBrowser(url);
-  });
-
-  // Persistence is a process-lifetime dependency of the broker, not a feature-toggle
-  // dependency. Multi-agent can be enabled from Settings without restarting the process;
-  // keeping both sinks wired from startup guarantees the first spawn can cross its durable
-  // acceptance barrier even when this launch began with multi-agent disabled.
-  onSwarmPersist(() => writeDurableSoon(SWARM_STATE, snapshotSwarm()));
-  onSwarmPersistNow((snapshot) => writeDurableNow(SWARM_STATE, snapshot));
-
-  // A multi-agent run outlives this process. Restoring it before the bridge starts
-  // means a worker that never joined gets its chat re-requested through the same queue
-  // as a fresh one, rather than being stranded with a key nobody has.
-  onRetiredWorkersPersist(() => writeDurableSoon(RETIRED_WORKERS_STATE, snapshotRetiredWorkers()));
-  onRetiredWorkersPersistNow((snapshot) => writeDurableNow(RETIRED_WORKERS_STATE, snapshot));
-  const retiredWorkers = await readDurable<RetiredWorkersSnapshot>(RETIRED_WORKERS_STATE);
-  if (windowActivation.isDisabled()) return;
-  restoreRetiredWorkers(retiredWorkers);
-  const savedSwarm = await readDurable<SwarmSnapshot>(SWARM_STATE);
-  if (windowActivation.isDisabled()) return;
-  restoreSwarm(savedSwarm);
-  if (!getConfig().multiAgent.enabled) {
-    // A feature toggle is a pause, not Clear swarm. Canonicalize any active incarnation left by
-    // a crash into stopped prime-owned history before the bridge exists, then make that safer
-    // projection durable. Re-enabling later in this process or after another restart recovers the
-    // same exact worker conversations without letting disabled workers consume execution slots.
-    pauseSwarmForDisable('multi-agent mode is disabled');
-    await writeDurableNow(SWARM_STATE, snapshotSwarm());
-    if (windowActivation.isDisabled()) return;
-  }
-  // Continuation recovery is after swarm restore because an interrupted durable rebind may
-  // have to finish publishing the prime transfer that was frozen in that snapshot.
-  setContinuationRecoveryHooks({
-    repairPrimeTransfer: repairPrimeConversationAfterRecovery
-  });
-  const savedContinuations = await readDurable<ContinuationSnapshot>(CONTINUATIONS_STATE);
-  if (windowActivation.isDisabled()) return;
-  await restoreContinuations(savedContinuations);
-  if (windowActivation.isDisabled()) return;
-
   // Strict CSP for our own page. There is no remote content and no inline script.
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
@@ -423,34 +291,8 @@ void app.whenReady().then(async () => {
 
   logInfo('app started');
 
-  // Historical Unattributed repair may legitimately scan and rewrite a large legacy bucket.
-  // It is maintenance, not a prerequisite for showing the app or accepting new exact-id
-  // traffic, so never make startup/reload wait behind years of old session history.
-  queueDeterministicAttributionRepair();
-
-  // The bridge serves recording and multi-agent mode both: recording needs the
-  // extension to observe the chat, and multi-agent mode needs it to open worker tabs.
-  // Either switch being on starts it. ipc.ts applies the same rule on a settings save.
-  if (getConfig().sessions.record || getConfig().multiAgent.enabled) {
-    void startBridge();
-  }
-  // Retention governs recordings already stored on disk, independent of whether recording is
-  // currently enabled. The tray app can stay alive for days, so run once now and keep a coarse
-  // maintenance timer rather than making expiry depend on the next process restart.
-  stopSessionRetention = startSessionRetentionMaintenance({
-    retainDays: () => getConfig().sessions.retainDays,
-    prune: pruneSessions,
-    onRemoved: (removed) => logInfo(`removed ${removed} session(s) past the retention window`),
-    onError: (err) => logError(`session pruning failed: ${err.message}`)
-  });
-
   if (getConfig().ui.autoConnect) void connect();
 
-  // Never awaited: an unreachable GitHub, a slow download or a broken release must not delay a
-  // window that is already on screen. Everything it learns arrives through the ordinary state
-  // push, every failure ends inside it, and its own timer keeps it running for a tray app that
-  // is never restarted.
-  startUpdateChecks();
 });
 
 app.on('before-quit', () => {
@@ -489,22 +331,14 @@ app.on('will-quit', (event) => {
       // The budget has to clear the drains it contains, or it would silently defeat them:
       // the bridge force-closes wedged localhost sockets at 15s and the MCP endpoint forces
       // its own drain at 30s. This is the outer bound on both, not a competing one.
-      { name: 'admission/drain', budgetMs: 40_000, run: () => [shutdownConnection(), shutdownBridge()] },
+      { name: 'admission/drain', budgetMs: 40_000, run: () => [shutdownConnection()] },
       // Phase 2: only after request handlers are done may their owned child processes go.
       {
         name: 'process cleanup',
         budgetMs: 15_000,
         run: () => [unifiedExecManager.terminateAllProcesses(), stopComputerHelper(), pluginManager.close()]
       },
-      // Phase 3: recorder work can enqueue both session projections and named durable state.
-      { name: 'recorder flush', budgetMs: 10_000, run: () => [flushRecorder()] },
-      // These are independent writers. One rejection must never skip the other flush.
-      { name: 'durable flush', budgetMs: 10_000, run: () => [flushSessions(), flushDurable()] },
-      // Last, because it is the one phase whose effect is meant to outlive this process: a
-      // staged update is handed to the platform's installer here, so the next start of the app
-      // is the new version. Nothing is staged unless it downloaded whole and matched the
-      // release's published SHA-256, and applying it cannot fail loudly - see update.ts.
-      { name: 'update handoff', budgetMs: 5_000, run: () => [applyStagedUpdate()] }
+      { name: 'durable flush', budgetMs: 10_000, run: () => [flushDurable()] }
     ],
     {
       info: logInfo,

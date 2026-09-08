@@ -1,5 +1,3 @@
-import { offerToolInput, acknowledgeToolInput } from '../session/input.js';
-import { pluginManager } from '../plugins/manager.js';
 /**
  * The machinery every model-facing tool sits on, independent of which surface it lives on.
  *
@@ -21,72 +19,43 @@ import { pluginManager } from '../plugins/manager.js';
  * genuinely read-only tool is marked as such.
  */
 
-import { rawPromises as fs } from '../rawfs.js';
-import { inboundRequestId } from './inbound.js';
 import { McpServer, type ServerContext } from '@modelcontextprotocol/server';
 import { z } from 'zod';
+import type { StoredText, ToolOutcome } from '../../shared/session.js';
 import type { Capabilities, Root } from '../../shared/types.js';
+import {
+AgentError,
+swarmRunning
+} from '../agents.js';
+import { ComputerError } from '../computer/index.js';
+import { ExecError } from '../exec.js';
 import { FsOpError, formatBytes, type FileInfo } from '../fsops.js';
 import { logInfo, logWarn } from '../logger.js';
-import {
-  SandboxError,
-  isAbsoluteVirtualPath,
-  isNativeWindowsPath,
-  resolvePath,
-  type Resolved
-} from '../sandbox.js';
-import { currentWorkspace, learnWorkspace, setCurrentWorkspace } from '../workspace.js';
 import { getSessionProject } from '../projects.js';
-import { ExecError } from '../exec.js';
-import { ComputerError } from '../computer/index.js';
-import { getConfig } from '../config.js';
+import { rawPromises as fs } from '../rawfs.js';
 import {
-  AgentError,
-  currentRunId,
-  acknowledgeOffersForConversation,
-  dormantWorkerNotice,
-  reactivateDormantRunForConversation,
-  endedWorkerNotice,
-  hasDormantWorkerLeases,
-  sleepSilentDetachedWorkers,
-  noteAgentAlive,
-  agentForCaller,
-  agentForFinishCaller,
-  hasRetiredWorkerLeases,
-  offerMessagesForConversation,
-  persistCriticalSwarmNow,
-  requestWorkerRevivals,
-  releaseQuiescentRun,
-  retiredWorkerForConversation,
-  stageQueuedWorkerRevivals,
-  swarmRunning
-} from '../agents.js';
-import type { SurfaceId } from './surfaces.js';
+SandboxError,
+isAbsoluteVirtualPath,
+isNativeWindowsPath,
+resolvePath,
+type Resolved
+} from '../sandbox.js';
 import {
-  currentCall,
-  emptyEvidence,
-  noteOutcome,
-  holdWhileSettling,
-  runInCallContext,
-  trackInFlight,
-  trackMcpRequest,
-  type CallContext
-} from './call-context.js';
-import {
-  REQUEST_ID_GRACE_MS,
-  awaitFreshCallOrigin,
-  evidenceWindow,
-  freshCallOrigin,
-  recordAgentMessage,
-  recordToolCall
+evidenceWindow
 } from '../session/recorder.js';
-import { requestCorrelation } from '../session/correlation.js';
-import { BLOCKED_CHAT_REFUSAL, anyChatBlocked, isChatBlocked } from '../session/blocked-chats.js';
-import { anyContinuationOpen, compactingConversation } from '../session/continuation.js';
-import { backgroundExecRecoveryNotices } from '../codex/ownership.js';
-import { unattributedRepairEta } from '../bridge.js';
-import { conversationAttachment, readOverflowText } from '../session/store.js';
-import type { StoredText, ToolOutcome } from '../../shared/session.js';
+import { readOverflowText } from '../session/store.js';
+import { currentWorkspace, learnWorkspace, setCurrentWorkspace } from '../workspace.js';
+import {
+currentCall,
+emptyEvidence,
+noteOutcome,
+runInCallContext,
+trackInFlight,
+trackMcpRequest,
+type CallContext
+} from './call-context.js';
+import { inboundRequestId } from './inbound.js';
+import type { SurfaceId } from './surfaces.js';
 
 export interface ToolContext {
   exposedFinishTool?: boolean;
@@ -239,39 +208,6 @@ function noteOutcomeSafely(outcome: ToolOutcome): void {
   }
 }
 
-/**
- * The conversation this call was made from, if this call itself proved it.
- *
- * The only identity any agent has, and the reason no tool here carries a key. It reads one
- * thing: ChatGPT's own message model naming *this* tool request, in exactly one conversation,
- * at or after the moment this call started. Not `provenConversation()` — that reports whichever
- * chat has drawn connector rows lately and keeps answering for a minute after that chat went
- * quiet, which on a machine with one busy chat says the same thing whoever is calling. Not the
- * active chat, not the last chat, not a guess.
- *
- * Deliberately non-blocking, and deliberately after the handler has run. Non-blocking because
- * this is on the path of every ordinary read and exec, and waiting on the browser to answer a
- * question about attribution would make the browser a dependency of reading a file. After the
- * handler because the page reports on its own tick: a call that took a second has had a second
- * for its evidence to arrive, which is exactly the calls whose attribution matters most.
- *
- * A call that cannot be placed simply has no agent. It is not refused — most calls in most
- * installs are an ordinary chat with no swarm anywhere near it, and a phone talking to the same
- * connector is not a worker impersonation attempt. What it does not get is somebody else's
- * inbox, and control of the run: `agents` establishes identity for itself, and refuses without
- * it by name.
- */
-function callerConversation(tool: string, startedAt: number, requestId: string | null): string | null {
-  return freshCallOrigin(tool, startedAt, requestId);
-}
-
-/** Publishes both halves of one exact request proof into the call context. */
-function setCallerConversation(context: CallContext, conversationId: string | null): void {
-  context.caller.conversationId = conversationId;
-  const exact = conversationId ? requestCorrelation(context.caller.requestId) : null;
-  context.caller.sessionId = exact?.conversationId === conversationId ? exact.sessionId : null;
-}
-
 /** The only SDK handler context field this layer consumes; request identity comes from ingress ALS. */
 type McpCallContext = Pick<ServerContext, 'sessionId'>;
 
@@ -310,107 +246,6 @@ export function transportIdentityStatus(): { checked: boolean; present: boolean 
   return { ...transportIdentity };
 }
 
-function noteTransportIdentity(transportKey: string | null): void {
-  if (transportIdentity.checked) return;
-  transportIdentity = { checked: true, present: transportKey !== null };
-  logInfo(
-    transportKey
-      ? 'MCP transport supplied a session id — agent identity could be bound to the transport'
-      : 'MCP transport supplied no session id (stateless connector) — agent identity comes from page evidence'
-  );
-}
-
-/** Appends same-conversation background reminders without consuming terminal output. */
-function withBackgroundExecRecovery(
-  sessionId: string | null | undefined,
-  result: ToolResult
-): ToolResult {
-  const notices = backgroundExecRecoveryNotices(sessionId);
-  if (notices.length === 0) return result;
-  return {
-    ...result,
-    content: [
-      ...result.content,
-      { type: 'text', text: `\n--- Background command recovery ---\n${notices.join('\n')}` }
-    ]
-  };
-}
-
-/**
- * Reports an attribution gap without inventing the unknown caller's recovery target.
- *
- * A broken request-id join is invisible from inside the conversation. The tools answer, the
- * turn reads normally, and the model has no way to know the app cannot tell who is calling —
- * and recovery may reload an eligible active page. The notice must preserve the distinction
- * between a completed local operation, its unknown attribution, and an undelivered agent
- * message: none of those facts implies that completed work is about to disappear.
- */
-function withUnattributedNotice(
-  conversationId: string | null | undefined,
-  result: ToolResult
-): ToolResult {
-  if (conversationId) return result;
-  const eta = unattributedRepairEta();
-  if (eta === null) return result;
-  return {
-    ...result,
-    content: [
-      ...result.content,
-      {
-        type: 'text',
-        text:
-          '\n--- Identity notice ---\n' +
-          'This app could not tell which ChatGPT conversation made this call, so it is filed as ' +
-          `Unattributed. The next recovery check for eligible active chats is in about ${eta}s; ` +
-          'this does not identify this chat as a reload target. The result above still states what ran. ' +
-          'Do not repeat a successful mutation to repair attribution. A later exact request-id match can ' +
-          'reattach this recorded call. Retry a refused operation once, and preserve any undelivered report in the chat.'
-      }
-    ]
-  };
-}
-
-/**
- * Appends the messages waiting for this agent to the tool result.
- *
- * This is the push-like delivery: an agent gets whatever has been said to it since its last
- * call, at the end of every result, with no polling loop. It works for a call this app could
- * place in a conversation, which is most of them and never all of them — so nothing is
- * retired here, and a message the page could not confirm is simply offered again next time.
- *
- * Messages are *offered* here, not retired. They are retired when this agent calls
- * again, because that is the first real evidence this result reached ChatGPT.
- */
-function withInbox(
-  conversationId: string | null | undefined,
-  agent: string | null,
-  result: ToolResult,
-  onFinish = false
-): ToolResult {
-  // Conversation ownership is the durable authority. This matters most for a parked prime:
-  // there is deliberately no live `agent:prime` while another history may be active, but its
-  // exact conversation still owns final worker reports queued before parking. The finish flag
-  // also preserves the one dormant-worker exception: retrying a lost finish result may re-offer
-  // rows that rode on that finish, without re-authorising ordinary worker activity.
-  const scoped = offerMessagesForConversation(conversationId, onFinish, onFinish);
-  const recipient = scoped?.agentId ?? agent;
-  const messages = scoped?.messages ?? [];
-  if (messages.length === 0) return result;
-  const lines = messages
-    .map(
-      (message) =>
-        `• [${message.id}] from ${message.from}${message.offers > 1 ? ' (repeat — you may have seen this)' : ''}: ${message.text}`
-    )
-    .join('\n');
-  return {
-    ...result,
-    content: [
-      ...result.content,
-      { type: 'text', text: `\n--- ${messages.length} message(s) for ${recipient ?? 'this conversation'} ---\n${lines}` }
-    ]
-  };
-}
-
 /**
  * Runs one tool call inside a recording context.
  *
@@ -424,9 +259,9 @@ function withInbox(
  */
 export async function dispatch(
   name: string,
-  args: unknown,
+  _args: unknown,
   transportKey: string | null,
-  requestId: string | null,
+  _requestId: string | null,
   surface: SurfaceId,
   run: () => Promise<ToolResult>
 ): Promise<ToolResult> {
@@ -440,12 +275,15 @@ export async function dispatch(
     startedAt: Date.now(),
     transportKey,
     agent: null,
-    caller: { transportKey, requestId, conversationId: null, sessionId: null },
+    caller: { transportKey, requestId: null, conversationId: null, sessionId: null },
     outcome: null,
     evidence: emptyEvidence()
   };
   return trackMcpRequest(() =>
-    trackInFlight(context, () => dispatchTracked(context, name, args, transportKey, requestId, surface, run))
+    trackInFlight(context, () => {
+      surfaceToolCallAt.set(surface, Date.now());
+      return runInCallContext(context, () => guard(name, run));
+    })
   );
 }
 
@@ -463,372 +301,6 @@ export const COMPACTION_IN_PROGRESS_REFUSAL =
   'user message asks for the handoff brief: write that brief now, as plain text, and then stop. ' +
   'Work continues in the replacement chat.';
 
-async function dispatchTracked(
-  context: CallContext,
-  name: string,
-  args: unknown,
-  transportKey: string | null,
-  requestId: string | null,
-  surface: SurfaceId,
-  run: () => Promise<ToolResult>
-): Promise<ToolResult> {
-  noteTransportIdentity(transportKey);
-  // Recorded here rather than in `guard` because only this layer knows which server
-  // answered, and "was this connector ever actually used from ChatGPT" is a per-connector
-  // question the setup screen has to answer honestly.
-  surfaceToolCallAt.set(surface, Date.now());
-  const isFinish = isFinishCall(name, args);
-  const startedAt = context.startedAt;
-  // Cheap, non-blocking ingress identity. When the page has already reported this exact
-  // request id, identity-sensitive handlers (workspace/session/agents) see it before they
-  // touch state. If the page is one tick late this stays null; only handlers that actually
-  // require identity wait for their own exact mate. Ordinary absolute reads/execs never wait.
-  setCallerConversation(context, callerConversation(name, startedAt, requestId));
-  // Only calls that need an *existing* per-chat workspace before the handler runs are
-  // identity-sensitive here. An absolute read or an exec with an explicit absolute workdir is
-  // self-contained and must stay fast; if its exact page mate is late, workspace.ts simply
-  // declines to learn a guessed workspace. Relative paths, omitted exec workdir and a patch with
-  // no explicit base really do consume caller state, so they wait for their exact request-id
-  // mate while a swarm is active. Use the full exact-id window, not the shorter prime window:
-  // the live worker failure that motivated IDENTITY_EVIDENCE_MS arrived ~8 seconds late.
-  const identitySensitive = needsWorkspaceIdentity(name, args);
-  if (!context.caller.conversationId && identitySensitive && swarmRunning() && requestId) {
-    setCallerConversation(
-      context,
-      await awaitFreshCallOrigin(name, startedAt, IDENTITY_EVIDENCE_MS, { requestId })
-    );
-  }
-  // A run that ended leaves an explicit short-lived lease tombstone for each open worker
-  // chat. Resolve exact request identity before ordinary tools too while such leases exist;
-  // otherwise an explicit-workdir exec could keep mutating after its worker was retired.
-  if (!context.caller.conversationId && hasRetiredWorkerLeases() && requestId) {
-    setCallerConversation(
-      context,
-      await awaitFreshCallOrigin(name, startedAt, IDENTITY_EVIDENCE_MS, { requestId })
-    );
-  }
-  // Dormant histories are long-lived identity fences, not active slot claims. An old worker tab
-  // may still issue a stale server-side call after its run parked, and without exact request-id
-  // attribution an absolute read/exec would otherwise look like an unrelated ordinary chat and
-  // run successfully. Resolve the exact mate for every call while such worker conversations
-  // exist, just as we do for short-lived retired worker leases.
-  if (!context.caller.conversationId && hasDormantWorkerLeases() && requestId) {
-    setCallerConversation(
-      context,
-      await awaitFreshCallOrigin(name, startedAt, IDENTITY_EVIDENCE_MS, { requestId })
-    );
-  }
-  // And the user's own block, which needs identity resolved to the same depth as everything
-  // above and used to be the one rule here that read it without ever waiting.
-  //
-  // Attribution waits: an unproven call is held for REQUEST_ID_GRACE_MS and then filed under
-  // whichever conversation the page proves inside that window. Enforcement did not, so a call
-  // that arrived before its page evidence — the first calls of a turn, and every call of a turn
-  // whose wedged page reports late — passed the block check as "no proven owner", ran the tool,
-  // and *then* appeared in the blocked chat's own timeline. That is exactly the failure the user
-  // sees: a chat marked blocked going on using tools, correctly attributed to it while it does.
-  // Enforcement losing a race that attribution wins is not a policy about unknown callers, it is
-  // a bug in how long enforcement is willing to look.
-  //
-  // So look as long as the recorder does, and only when there is a block to enforce: with no
-  // blocked chat this is a `Map.size` check on the way past, and a request id that is already
-  // proven — every later call of a turn — resolves from the registry without waiting at all.
-  // Unproven still means unblocked, as everywhere else here; what changes is that "unproven"
-  // now means the page never proved it, not that the page had not proved it yet.
-  //
-  // A chat being compacted is refused on the same terms, so it waits on the same terms.
-  if (!context.caller.conversationId && (anyChatBlocked() || anyContinuationOpen()) && requestId) {
-    setCallerConversation(
-      context,
-      await awaitFreshCallOrigin(name, startedAt, REQUEST_ID_GRACE_MS, { requestId })
-    );
-  }
-  const supersededConversation = context.caller.conversationId
-    ? (await conversationAttachment(context.caller.conversationId, context.caller.sessionId ?? null)) === 'superseded'
-    : false;
-  // Two things about liveness, both before the agent is resolved so that the answer this
-  // call gets is the state this call itself established.
-  //
-  // A detached worker that has also stopped calling is put to sleep here rather than on a
-  // timer: nothing about a run changes while nothing is happening, and this is the moment
-  // something is happening. Sleep rather than failure, so being early about a slow worker
-  // costs the run nothing — its own next call takes the slot straight back.
-  // A superseded frontend is durable historical identity, not liveness. Letting its refused
-  // call pass through the broker bookkeeping used to revive the very worker/chat the store had
-  // just retired, which kept the session card on "active" after A -> B.
-  //
-  // Before any of that: a proven call from a worker whose family was parked when it was
-  // thought asleep takes the free execution slot back for that family, so the liveness
-  // bookkeeping below sees the same run it would have seen had the parking not happened. A
-  // chat the user stopped from the app is refused below anyway and reclaims nothing.
-  if (!supersededConversation && !isFinish && !isChatBlocked(context.caller.conversationId)) {
-    reactivateDormantRunForConversation(context.caller.conversationId);
-  }
-  const quietWorkers = supersededConversation ? [] : sleepSilentDetachedWorkers();
-  for (const quiet of quietWorkers) {
-    if (quiet.report) await recordAgentMessage(quiet.report, 'sent', quiet.info.conversationId);
-  }
-  // And this call is itself first-hand evidence that its own conversation is alive. That is
-  // what undoes a worker given up on because its tab went away — the turn never stopped, so
-  // the call arrives from a chat the app had written off, and the write-off was wrong.
-  const alive = supersededConversation ? null : noteAgentAlive(context.caller.conversationId);
-  if (alive?.report) await recordAgentMessage(alive.report, 'sent', context.caller.conversationId);
-  // A prime message accepted while a worker's tab was closed could not safely be injected while
-  // that server-side turn might still be running. If the silence check above has now proved the
-  // worker stopped, carry that already-durable unread work into a revival instead of leaving it
-  // stranded until the prime happens to send a second message. Do this after noteAgentAlive so a
-  // tool call from the supposedly quiet worker wins and simply keeps the worker active.
-  const quietByRun = new Map<string, string[]>();
-  for (const entry of quietWorkers) {
-    const runId = entry.info.runId ?? (entry.info.conversationId ? currentRunId(entry.info.conversationId) : null);
-    if (!runId) continue;
-    quietByRun.set(runId, [...(quietByRun.get(runId) ?? []), entry.info.id]);
-  }
-  for (const [runId, ids] of quietByRun) {
-    const deferredWake = stageQueuedWorkerRevivals(ids, runId);
-    if (deferredWake.waking.length > 0) {
-      try {
-        if (await persistCriticalSwarmNow()) {
-          deferredWake.commit();
-          requestWorkerRevivals(deferredWake.waking, runId);
-        } else {
-          deferredWake.rollback();
-          logWarn('multi-agent: could not durably reserve queued work for a worker that just fell asleep');
-        }
-      } catch (err) {
-        deferredWake.rollback();
-        logWarn(
-          `multi-agent: could not durably reserve queued work for a worker that just fell asleep — ${err instanceof Error ? err.message : String(err)}`
-        );
-      }
-    }
-  }
-  context.agent = isFinish ? agentForFinishCaller(context.caller) : agentForCaller(context.caller);
-  const retiredWorker = retiredWorkerForConversation(context.caller.conversationId);
-  // Parking a run releases its global execution claim without retiring its worker chats. Those
-  // exact conversations remain workers, though: a stale sleeping/terminal worker tab must not
-  // turn into an ordinary unidentified chat and keep running local tools merely because another
-  // prime currently owns the active run (or because no run is active at all). Only the owning
-  // prime's explicit agents message may wake a sleeping worker.
-  const dormantWorker = isFinish ? null : dormantWorkerNotice(context.caller.conversationId);
-  // A worker that really is over learns so on its own next call. Without this its calls
-  // resolved to nobody and ran anyway, so a chat the user had ended went on writing files
-  // in the name of no agent at all.
-  // A terminal worker may do exactly one thing: retry its own idempotent finish after a lost
-  // result. It still has a tombstone identity for that call so the dispatcher can re-offer the
-  // inbox that rode on the missing result. Every other tool call from the same chat is refused
-  // by endedWorkerNotice as before.
-  const endedWorker = isFinish ? null : endedWorkerNotice(context.caller.conversationId);
-  // The user's own verdict on this chat, and the only one that outranks every other. It is not
-  // a lifecycle state the broker derived: somebody looked at a rogue turn they could not stop
-  // from the page and stopped it here instead, so it applies to every tool on every surface,
-  // `agents` finish included. A blocked chat has nothing left to finish.
-  const blockedChat = isChatBlocked(context.caller.conversationId);
-  // A chat whose session is on its way to a fresh chat. Compact & Resume interrupts the turn
-  // from the page and waits for the app's in-flight count to reach zero, but neither is a
-  // fact about the model: ChatGPT's Stop control can vanish while the server-side turn goes
-  // on calling tools, and a count of zero between two calls is not a turn that has ended. On
-  // 2026-09-01 that is exactly what happened — the "stopped" turn kept calling tools, the
-  // handoff prompt was typed into it, and the model spent eleven more minutes on its task,
-  // applying patches, before it got round to the brief. So the refusal lives here, where
-  // every call passes: from the moment the continuation is filed until its commit hands the
-  // chat over to `superseded`, chat A gets no tool at all, and each refusal tells the model
-  // the only thing it can usefully do is write the brief.
-  const compacting = !blockedChat && compactingConversation(context.caller.conversationId) !== null;
-  const allowUnattributed = getConfig().multiAgent.allowUnattributedCalls;
-  const retiredLeaseAmbiguous =
-    !allowUnattributed && hasRetiredWorkerLeases() && !context.caller.conversationId;
-  const dormantLeaseAmbiguous =
-    !allowUnattributed && hasDormantWorkerLeases() && !context.caller.conversationId;
-  // In a swarm, a relative/defaulted filesystem operation is not safe to execute after the
-  // exact caller lookup timed out: its workspace is part of the requested operation. Falling
-  // back to the first approved root turns an attribution outage into wrong-project mutation.
-  // Refuse and let the model retry once page evidence is healthy instead.
-  // The arrival of this exact call acknowledges earlier injected input before the
-  // handler reads the queue. New queued input is still offered only with its result.
-  await acknowledgeToolInput(context.caller.sessionId, context.caller.conversationId, requestId, startedAt)
-    .catch(() => logWarn('Prior user input receipt could not be saved; its existing claim is preserved'));
-  const result = await runInCallContext(context, () =>
-      blockedChat
-        ? Promise.resolve(fail(BLOCKED_CHAT_REFUSAL))
-        : compacting
-        ? Promise.resolve(fail(COMPACTION_IN_PROGRESS_REFUSAL))
-        : supersededConversation
-        ? Promise.resolve(
-            fail(
-              'CONVERSATION_SUPERSEDED: Compact & Resume replaced this ChatGPT conversation. Its transcript remains readable, but it can no longer execute local tools. Continue only in the replacement chat; no local tool was run.'
-            )
-          )
-        : dormantWorker
-        ? Promise.resolve(fail(dormantWorker))
-        : retiredWorker
-        ? Promise.resolve(
-            fail(
-              `WORKER_RETIRED: ${retiredWorker.id} was retired because ${retiredWorker.reason}. This chat can no longer use local tools. Stop working and return to the prime chat.`
-            )
-          )
-        : endedWorker
-        ? Promise.resolve(fail(endedWorker))
-        : retiredLeaseAmbiguous
-        ? Promise.resolve(
-            fail(
-              'CALLER_IDENTITY_REQUIRED: a recently retired worker tab may still be open, and the connector could not prove this call belongs to a different chat. No local tool was run. For a browser chat, restore the companion connection and retry. Scheduled or headless runs may have no browser identity: the user can enable "Allow unattributed calls" in the app settings to permit self-contained calls recorded as Unattributed. Exact retired-worker restrictions still apply.'
-            )
-          )
-        : dormantLeaseAmbiguous
-        ? Promise.resolve(
-            fail(
-              'CALLER_IDENTITY_REQUIRED: a dormant worker chat still belongs to its prime history, and the connector could not prove this call belongs to a different conversation. No local tool was run. For a browser chat, restore the companion connection and retry. Scheduled or headless runs may have no browser identity: the user can enable "Allow unattributed calls" in the app settings to permit self-contained calls recorded as Unattributed. This does not identify the caller or grant access to another chat’s workspace or processes.'
-            )
-          )
-        : !allowUnattributed && swarmRunning() && identitySensitive && !context.caller.conversationId
-        ? Promise.resolve(
-            fail(
-              'CALLER_IDENTITY_REQUIRED: this operation needs this chat’s exact workspace, but the connector could not prove which ChatGPT conversation made the call. Retry after the extension reconnects; no file or command was changed.'
-            )
-          )
-        : run()
-  );
-  // Identity, once, from this call's own evidence — see callerConversation. `agents` has
-  // already established its own inside the call and adopted it, and re-reading here would
-  // only be able to disagree with the stronger answer it waited for.
-  if (!context.caller.conversationId) {
-    const resolved = callerConversation(name, startedAt, requestId);
-    if (resolved) setCallerConversation(context, resolved);
-  }
-  // Never erase an identity a handler proved more strongly (agents::callerNow). The old
-  // post-handler pass could fail to rediscover evidence that callerNow had already reserved
-  // and then set agent back to null, which is the live WORKER_IDENTITY_LOST / missing-inbox
-  // split brain worker-1 observed.
-  if (!context.agent) {
-    context.agent = isFinish ? agentForFinishCaller(context.caller) : agentForCaller(context.caller);
-  }
-  // This call is the best evidence there is that the previous result reached the agent's
-  // conversation, so anything offered then can be retired and written to its history —
-  // except what was offered on a finish result, which this call may itself be the model's
-  // retry after a lost result. The SDK exposes the JSON-RPC id, but a model-issued retry is
-  // a new MCP request with a new id, so that id cannot prove the previous finish result was
-  // seen. The broker therefore re-offers rather than assuming; see acknowledgeOffers.
-  const acknowledgedForConversation = supersededConversation
-    ? null
-    : acknowledgeOffersForConversation(
-        context.caller.conversationId,
-        isFinish,
-        startedAt,
-        isFinish
-      );
-  const acknowledged = acknowledgedForConversation?.messages ?? [];
-  for (const message of acknowledged) {
-    // The exact caller conversation is stronger than the friendly recipient id and remains
-    // unique after a run parks. Without this override, a parked Prime A acknowledging its report
-    // while Prime B is active could file the delivery into B's `prime` session (or Unattributed).
-    await recordAgentMessage(message, 'delivered', context.caller.conversationId);
-  }
-  // This is the MCP call's wall-clock latency. A managed child can outlive the call, and
-  // its own lifetime is process evidence; letting that number overwrite ToolCallRecord's
-  // duration is what made a 10s yield read like a command that had completed in 10s.
-  const durationMs = Date.now() - startedAt;
-  // Inbox messages are part of the MCP result ChatGPT actually receives. Build the delivered
-  // result before recording so session(action=read, tool_call=T…) is genuine wire forensics rather than a
-  // subtly earlier internal value that omits the worker report most likely to matter later.
-  let delivered = withUnattributedNotice(
-    context.caller.conversationId,
-    withBackgroundExecRecovery(
-      context.caller.sessionId,
-      withInbox(context.caller.conversationId, context.agent, result, isFinish)
-    )
-  );
-  // Ordinary tools carry direct user input, but only the explicit finish signal
-  // advances a planned stage. Successful work is not evidence that a stage is done.
-  const userInput = await offerToolInput(context.caller.sessionId, context.caller.conversationId, context.caller.requestId, startedAt, name === 'session_finish' && !result.isError).catch(() => {
-    logWarn('User input could not be attached; the completed tool result is preserved');
-    return [];
-  });
-  if (userInput.length) {
-    const attachments: ToolResult['content'] = [];
-    for (const message of userInput) {
-      attachments.push({ type: 'text', text: '\n--- New instructions from the user ---\n' + message.text });
-      for (const image of message.images) attachments.push({ type: 'image', mimeType: 'image/webp', data: image.dataUrl.slice(image.dataUrl.indexOf(',') + 1) });
-    }
-    delivered = { ...delivered, content: [...delivered.content, ...attachments] };
-  }
-  const recorderStartedAt = Date.now();
-  const recordedResult = surface === 'plugins' ? pluginManager.redactResult(delivered) : delivered;
-  const recording = recordToolCall({
-    tool: name,
-    args: surface === 'plugins' ? pluginManager.redact(args) : args,
-    content: recordedResult.content as ToolResult['content'],
-    ...(surface === 'plugins' ? { protocolResult: recordedResult } : {}),
-    // guard() already marks unexpected defects; an unclassified isError is an expected rejection.
-    outcome: context.outcome ?? (result.isError ? 'tool_rejected' : 'ok'),
-    durationMs,
-    startedAt,
-    evidence: context.evidence,
-    agent: context.agent,
-    bind: context.bindOnAttribution ?? null,
-    requestId: context.caller.requestId,
-    conversationId: context.caller.conversationId,
-    sessionId: context.caller.sessionId ?? null,
-    endsActivity: isFinish && !result.isError
-  });
-  // Exact request-id identity needs no browser wait, so make its durable session append part
-  // of completing the MCP call. The recorder catches storage failures and returns null, so a
-  // broken history never breaks the tool itself. Only the degraded/unidentified path remains
-  // fire-and-forget because it may still spend a grace window waiting for page evidence.
-  if (context.caller.conversationId) {
-    await recording;
-    if (name === 'observe' || name === 'computer') {
-      logInfo(`desktop timing recorder_wait_ms=${Date.now() - recorderStartedAt} attributed=true`);
-    }
-  } else {
-    if (name === 'observe' || name === 'computer') {
-      void recording.then(() =>
-        logInfo(`desktop timing recorder_wait_ms=0 recorder_async_ms=${Date.now() - recorderStartedAt} attributed=false`)
-      );
-    }
-    holdWhileSettling(context, recording);
-  }
-  // Retire a completed run only after this call has had every chance to acknowledge and
-  // receive its inbox. Doing it inside acknowledgeOffers would let `agents status` destroy
-  // the run halfway through identifying itself; here the handler and result are already done.
-  const callerRunId = context.caller.conversationId ? currentRunId(context.caller.conversationId) : null;
-  if (callerRunId) releaseQuiescentRun({}, callerRunId);
-  return delivered;
-}
-
-/** Whether this handler must know which chat it is before resolving its paths. */
-function needsWorkspaceIdentity(name: string, args: unknown): boolean {
-  const input = args && typeof args === 'object' ? (args as Record<string, unknown>) : {};
-  const relative = (value: unknown): boolean =>
-    typeof value === 'string' && !isAbsoluteVirtualPath(value) && !isNativeWindowsPath(value);
-  if (name === 'read') {
-    const paths = Array.isArray(input['paths']) ? input['paths'] : [];
-    return paths.some(relative);
-  }
-  if (name === 'find') return relative(input['path']);
-  if (name === 'apply_patch') {
-    // Codex's apply_patch surface has no cwd argument. Relative patch paths therefore always
-    // consume the turn/chat cwd analogue maintained by this connector.
-    return true;
-  }
-  if (name === 'exec_command') {
-    // Every exec in a swarm also needs caller identity so a long-running session can be
-    // owned by the right chat even when the cwd itself was explicit.
-    const workdir = input['workdir'];
-    return swarmRunning() || workdir === undefined || relative(workdir);
-  }
-  return false;
-}
-
-/**
- * Adopts an identity established *inside* a tool call.
- *
- * The dispatcher can only resolve a caller from what the call carried, which for the prime
- * is nothing at all. The `agents` tool proves who is calling from evidence rendered after
- * that call began, and this is how that answer gets back to the layers that need it: the
- * record this call will be filed under, and the inbox attached to its result. Called only
- * from the one tool that does that work, and only with an id it has just proven.
- */
 export async function adoptAgent(agent: string | null): Promise<void> {
   const context = currentCall();
   if (!context || !agent) return;
@@ -837,12 +309,6 @@ export async function adoptAgent(agent: string | null): Promise<void> {
   // ingress could, but it must not also retire inbox state: the dispatcher owns exactly one ACK
   // point after the handler, where it knows whether this call is a finish retry and can apply
   // the finish-specific at-least-once rule correctly.
-}
-
-function isFinishCall(name: string, args: unknown): boolean {
-  if (name !== 'agents') return false;
-  if (!args || typeof args !== 'object') return false;
-  return (args as Record<string, unknown>)['action'] === 'finish';
 }
 
 /**
@@ -1007,10 +473,10 @@ export function createRegistrar(server: McpServer, ctx: ToolContext, surface: Su
   // switches on in the app, and neither touches the filesystem. Like the capability
   // tools they are exposed monotonically and disabled at the handler, so switching a
   // feature off does not delete a tool a cached ChatGPT snapshot still believes in.
-  const sessionToolsLive = ctx.sessionTools ?? getConfig().sessions.record;
-  const agentToolsLive = ctx.agentTools ?? getConfig().multiAgent.enabled;
-  const sessionToolsExposed = ctx.exposedSessionTools ?? sessionToolsLive;
-  const agentToolsExposed = ctx.exposedAgentTools ?? agentToolsLive;
+  const sessionToolsLive = false;
+  const agentToolsLive = false;
+  const sessionToolsExposed = false;
+  const agentToolsExposed = false;
   const findExposed = ctx.exposedFind ?? (!exposedCaps.command && exposedCaps.search);
   const names: string[] = [];
 
@@ -1025,6 +491,7 @@ export function createRegistrar(server: McpServer, ctx: ToolContext, surface: Su
     findExposed,
     registered: () => [...names],
     register(name, config, handler) {
+      if (['session', 'agents', 'session_finish'].includes(name)) return;
       names.push(name);
       observe?.(name, config);
       // No identity field is ever added here. Every tool's schema is exactly what its

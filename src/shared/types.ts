@@ -546,8 +546,8 @@ export interface MacOSDesktopAccessStatus {
  * recorded session, so they are not independently viable reasons to require a browser when
  * recording itself is off.
  */
-export function browserExtensionRequired(config: Pick<Config, 'sessions' | 'multiAgent'>): boolean {
-  return config.sessions.record || config.multiAgent.enabled;
+export function browserExtensionRequired(_config: Pick<Config, 'sessions' | 'multiAgent'>): boolean {
+  return false;
 }
 
 export interface AppState {

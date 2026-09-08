@@ -1,3 +1,4 @@
+import { LOCAL_TOOLS_ONLY } from './local-policy.js';
 import { conversationProgress } from './session/progress.js';
 import { pendingChatModelRequest, observeChatModels } from './chat-models.js';
 import { isProModel } from '../shared/chat-models.js';
@@ -3780,6 +3781,7 @@ function enqueueBridgeLifecycle<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export function startBridge(): Promise<number | null> {
+  if (LOCAL_TOOLS_ONLY) return Promise.resolve(null);
   if (bridgeShutdownRequested) return Promise.resolve(null);
   if (bridgeDesiredRunning) {
     if (bridgeStartRequest) return bridgeStartRequest;

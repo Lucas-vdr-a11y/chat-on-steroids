@@ -1,3 +1,4 @@
+import { LOCAL_TOOLS_ONLY } from './local-policy.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { readDurable, writeDurableNow } from './durable.js';
@@ -53,6 +54,7 @@ function matches(tools: unknown, expected: PluginToolSchema[], surface: PluginSu
 }
 /** Refresh can invalidate existing ChatGPT chats. Only a changed visible tool contract warrants it. */
 export function publishPluginSurface(surface: PluginSurface, connectorName: string, _version: string, _instructions: string, tools: PluginToolSchema[]): void {
+  if (LOCAL_TOOLS_ONLY) return;
   const publication = { surface, connectorName, tools, schemaId: hash(declaration(tools)) };
   const previous = settling.get(surface);
   const changed = previous?.schemaId !== publication.schemaId;

@@ -1,5 +1,5 @@
-appId: com.chatonsteroids.app
-productName: Chat On Steroids
+appId: com.chatonsteroids.local
+productName: Chat On Steroids Local
 copyright: MIT licensed
 
 directories:
@@ -32,12 +32,6 @@ extraResources:
     to: LICENSE.electron.txt
   - from: node_modules/electron/dist/LICENSES.chromium.html
     to: LICENSES.chromium.html
-  - from: extension
-    to: extension
-    filter:
-      - '**/*'
-      - '!**/*.map'
-
 npmRebuild: false
 
 # macOS only; a no-op on every other platform. See the hook and the mac.identity note below.

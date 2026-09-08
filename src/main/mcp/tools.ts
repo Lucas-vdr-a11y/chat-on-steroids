@@ -27,6 +27,7 @@ import { toVirtualPath } from '../sandbox.js';
 import { logWarn } from '../logger.js';
 
 export function buildServer(ctx: ToolContext, surface: SurfaceId, observe?: (connectorName: string, version: string, instructions: string, tools: PluginToolSchema[]) => void): McpServer {
+  ctx = { ...ctx, sessionTools: false, agentTools: false, exposedSessionTools: false, exposedAgentTools: false, exposedFinishTool: false };
   const definition = surfaceDefinition(surface);
   const server = new McpServer(
     { name: definition.serverName, version: APP_VERSION },

@@ -471,7 +471,7 @@ function firstLaunchCapabilities(platform: NodeJS.Platform, release?: string): C
 }
 
 export function defaultConfig(platform: NodeJS.Platform = process.platform, release?: string): Config {
-  return {
+  return enforceFeatureDependencies({
     roots: [],
     capabilities: firstLaunchCapabilities(platform, release),
     readOnly: false,
@@ -483,7 +483,7 @@ export function defaultConfig(platform: NodeJS.Platform = process.platform, rele
     artifacts: { ...DEFAULT_ARTIFACTS },
     goal: { ...DEFAULT_GOAL },
     mcp: { ...DEFAULT_MCP }
-  };
+  });
 }
 
 /**
@@ -516,8 +516,13 @@ function conservativeRecoveryConfig(): Config {
  * hand-edited/older config writers alike.
  */
 function enforceFeatureDependencies(config: Config): Config {
-  if (config.sessions.record || !config.goal.enabled) return config;
-  return { ...config, goal: { ...config.goal, enabled: false } };
+  return { ...config,
+    sessions: { ...config.sessions, record: false },
+    compaction: { ...config.compaction, auto: false },
+    multiAgent: { ...config.multiAgent, enabled: false, recoverAgentTabs: false, allowUnattributedCalls: true },
+    goal: { ...config.goal, enabled: false, impulseMinutes: 0 },
+    ui: { ...config.ui, finishTool: false, autoRefreshPlugins: false, backgroundChats: false, browserOnly: false }
+  };
 }
 
 /**
