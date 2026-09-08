@@ -1,3 +1,4 @@
+import { startPluginRecovery } from './plugin-recovery.js';
 /**
  * Main process entry: window, tray, and the security posture for the renderer.
  */
@@ -40,7 +41,7 @@ let tray: Tray | null = null;
 let quitting = false;
 let shutdownStarted = false;
 let shutdownComplete = false;
-let stopSessionRetention: (() => void) | null = null;
+let stopPluginRecovery: (() => void) | null = null;
 
 // One instance only: two copies would fight over the tunnel and the config file.
 app.setName('Chat On Steroids Local');
@@ -243,6 +244,7 @@ void app.whenReady().then(async () => {
     delete process.env.COS_IMPORT_ROOT;
   }
   await pluginManager.initialize(userData);
+  stopPluginRecovery = startPluginRecovery(pluginManager);
   if (windowActivation.isDisabled()) return;
   try { applyLoginStartup(app, getConfig().ui.startAtLogin === true); }
   catch (error) { logWarn(`Windows login startup: ${error instanceof Error ? error.message : String(error)}`); }
@@ -320,8 +322,8 @@ app.on('will-quit', (event) => {
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
-  stopSessionRetention?.();
-  stopSessionRetention = null;
+  stopPluginRecovery?.();
+  stopPluginRecovery = null;
   tray?.destroy();
   tray = null;
 
@@ -362,3 +364,7 @@ app.on('web-contents-created', (_event, contents) => {
   contents.on('will-navigate', (event) => event.preventDefault());
   contents.on('will-redirect', (event) => event.preventDefault());
 });
+
+// launchd and the SSD supervisor request an orderly shutdown.
+process.on('SIGTERM', () => app.quit());
+process.on('SIGINT', () => app.quit());

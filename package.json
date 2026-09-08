@@ -11,7 +11,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run test/local-edition.test.ts test/sandbox.test.ts test/codex-apply-patch-parity.test.ts test/codex-apply-patch-move-rollback.test.ts test/plugins-manager.test.ts test/plugins-installer.test.ts test/plugins-oauth.test.ts test/computer-local-actions.test.ts",
+    "test": "vitest run test/local-edition.test.ts test/sandbox.test.ts test/codex-apply-patch-parity.test.ts test/codex-apply-patch-move-rollback.test.ts test/plugins-manager.test.ts test/plugins-installer.test.ts test/plugins-oauth.test.ts test/computer-local-actions.test.ts test/plugin-recovery.test.ts",
     "test:watch": "vitest",
     "verify": "npm run verify:ci",
     "verify:ci": "npm run rg && npm run verify:privacy && npm run verify:notices && npm run typecheck && npm test && npm run build",

@@ -36,6 +36,10 @@ This is a personal connector: it does not identify or isolate individual ChatGPT
 
 Removing the integration mechanisms above does not certify every possible use or third-party plugin as compliant. OpenAI's [EU terms](https://openai.com/policies/eu-terms-of-use/) prohibit, among other things, automated/programmatic extraction of data or output and bypassing restrictions. Local tools use the documented [secure MCP tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels). General local automation and MCP are not inherently violations; the way they are used matters.
 
+## Connection recovery
+
+Enabled plugins with failed transports reconnect automatically, with retries spaced from 30 seconds up to five minutes. Authentication prompts and disabled plugins are left for the user. Recovery never repeats tool calls or reinstalls packages. An optional OS login service can supervise the desktop process; the computer must be awake, online, and any external data drive mounted.
+
 ## Development
 
 ```sh
