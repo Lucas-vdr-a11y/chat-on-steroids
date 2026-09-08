@@ -120,6 +120,13 @@ the shared working tree. Typecheck and focused renderer regressions passed; a hi
 render with the production CSS confirmed a transparent wrapper, 96px image tile and 8px gap
 above the text-only bubble. No installed application was changed during this check.
 
+A final desktop-launch review found runtime discovery using the inherited PATH while plugin
+installation/startup independently used the SDK environment. Those callers now share one
+minimal plugin environment. On macOS/Linux it preserves inherited PATH precedence and adds
+the standard Homebrew/Node and user uv installation directories, without running shell
+startup files or exposing the application's wider environment. Windows keeps its existing
+path. Regression coverage checks desktop-style paths, precedence and idempotence.
+
 Local validation: clean dependency installation; exact upstream archive/notice comparisons;
 `npm run verify` passed 3,402 main tests and two shutdown tests (27 existing opt-in/platform
 skips); production build passed. The new cross-platform live-plugin checks are tracked in the

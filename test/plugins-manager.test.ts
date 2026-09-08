@@ -42,6 +42,16 @@ afterEach(async () => {
   await removeTempDir(dir);
 });
 describe('external plugin authority', () => {
+  it('finds standard desktop-installed runtimes without replacing inherited PATH precedence', () => {
+    const inherited = { PATH: '/custom/bin:/usr/bin:/bin', HOME: '/Users/example' };
+    expect(pluginInstaller.pluginEnvironment(inherited, 'darwin').PATH).toBe('/custom/bin:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:/Users/example/.local/bin');
+    const linux = pluginInstaller.pluginEnvironment({ PATH: '/usr/local/bin:/usr/bin', HOME: '/home/example' }, 'linux');
+    expect(linux.PATH).toBe('/usr/local/bin:/usr/bin:/home/example/.local/bin');
+    expect(pluginInstaller.pluginEnvironment(linux, 'linux')).toEqual(linux);
+    expect(pluginInstaller.pluginEnvironment({ Path: 'C:\\tools;C:\\Windows' }, 'win32')).toEqual({ Path: 'C:\\tools;C:\\Windows' });
+    expect(inherited.PATH).toBe('/custom/bin:/usr/bin:/bin');
+  });
+
   it('projects reviewed license terms for existing installations without reinstalling them', async () => {
     vi.spyOn(pluginInstaller, 'installSource').mockResolvedValueOnce({
       command: process.execPath, args: [entry], version: '2026.8.31', license: 'MIT',

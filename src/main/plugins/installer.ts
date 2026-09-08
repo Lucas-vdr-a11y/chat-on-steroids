@@ -7,7 +7,23 @@ import type { PluginSource } from '../../shared/plugins.js';
 import { pluginCatalog, reviewedPluginLicense } from './catalog.js';
 import { getDefaultEnvironment } from '@modelcontextprotocol/client/stdio';
 import { terminateProcessTree } from '../exec.js';
-import { envValue } from '../env.js';
+import { envValue, pathEntries, setEnvValue } from '../env.js';
+
+/** One minimal environment for runtime discovery, installation and plugin startup. */
+export function pluginEnvironment(inherited = getDefaultEnvironment(), platform = process.platform): Record<string, string> {
+  const env = { ...inherited };
+  if (platform === 'win32') return env;
+  // Desktop launchers do not inherit interactive shell setup. Keep the inherited path
+  // first, then the standard Node/Homebrew and uv user-install locations. Never execute
+  // shell startup files or copy the application's wider secret-bearing environment.
+  const directories = (envValue(env, 'PATH') ?? '').split(':').filter(Boolean);
+  if (platform === 'darwin') directories.push('/opt/homebrew/bin');
+  directories.push('/usr/local/bin');
+  const home = envValue(env, 'HOME');
+  if (home) directories.push(path.posix.join(home, '.local', 'bin'));
+  setEnvValue(env, 'PATH', [...new Set(directories)].join(':'));
+  return env;
+}
 
 export interface InstalledLaunch {
   command: string;
@@ -103,7 +119,7 @@ export async function runInstaller(command: string, args: string[], cwd: string)
   await new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: getDefaultEnvironment(),
+      env: pluginEnvironment(),
       shell: false,
       windowsHide: true,
       stdio: 'ignore',
@@ -246,7 +262,7 @@ export async function installSource(source: PluginSource, dir: string): Promise<
 }
 
 async function findExecutable(name: string): Promise<string> {
-  for (const dir of (envValue(process.env, 'PATH') ?? '').split(path.delimiter)) {
+  for (const dir of pathEntries(pluginEnvironment())) {
     const full = path.join(dir, name + (process.platform === 'win32' ? '.exe' : ''));
     try {
       await fs.access(full);
