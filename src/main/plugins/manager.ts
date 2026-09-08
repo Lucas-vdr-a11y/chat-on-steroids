@@ -11,7 +11,7 @@ import { setEnvValue } from '../env.js';
 import type { PluginConfigPatch, PluginInstallRequest, PluginSnapshot, PluginView } from '../../shared/plugins.js';
 import { installSource, resolveGithub, stopInstallers, type InstalledLaunch } from './installer.js';
 import { terminateProcessTree } from '../exec.js';
-import { pluginCatalog } from './catalog.js';
+import { pluginCatalog, reviewedPluginLicense } from './catalog.js';
 import sharp from 'sharp';
 import { pluginExposure } from './exposure.js';
 import { PluginOAuth, PluginNeedsAuth, PluginOAuthSetupError, clearPluginOAuth } from './oauth.js';
@@ -111,6 +111,7 @@ export class PluginManager {
       schemaRevision: this.revision,
       plugins: this.records.map(({ directory: _, launch: __, disabledTools, catalog, ...row }) => ({
         ...row,
+        license: reviewedPluginLicense({ ...row.source, version: row.version }, row.license),
         tools: catalog.map(tool => ({
           name: tool.name, exposedName: tool.name, description: tool.description,
           enabled: !disabledTools.includes(tool.name),

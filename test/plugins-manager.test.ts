@@ -42,6 +42,17 @@ afterEach(async () => {
   await removeTempDir(dir);
 });
 describe('external plugin authority', () => {
+  it('projects reviewed license terms for existing installations without reinstalling them', async () => {
+    vi.spyOn(pluginInstaller, 'installSource').mockResolvedValueOnce({
+      command: process.execPath, args: [entry], version: '2026.8.31', license: 'MIT',
+    });
+    await manager.install({ catalogId: 'memory' });
+    expect(manager.snapshot().plugins[0]!.license).toContain('Apache-2.0');
+    await manager.close();
+    manager = new PluginManager();
+    await manager.initialize(dir);
+    expect(manager.snapshot().plugins[0]!.license).toContain('Apache-2.0');
+  });
   it('restores OAuth as needs-auth without a request or browser opening and never publishes its cached catalog', async () => {
     const row = (await manager.install({ source: { kind: 'command', command: process.execPath, args: [entry] } })).plugins[0]!;
     const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected network request'));

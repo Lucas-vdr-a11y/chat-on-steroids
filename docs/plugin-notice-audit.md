@@ -16,6 +16,7 @@ use, trademark, generated asset or native binary distribution.
   matches the package's exact upstream Git revision and preserves the MIT/Apache transition
   and documentation terms. The installed-plugin label now uses that reviewed information
   only for the exact package version. Custom/future versions do not inherit an old review.
+  Snapshot projection also corrects older installed labels without reinstalling the plugin.
 - HeyGen and Recraft are hosted services with separate terms, account permissions and usage
   requirements. The catalog does not represent either service as MIT software or grant rights
   to every generated output. Their official terms links were checked.
