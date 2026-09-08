@@ -31,7 +31,11 @@ for (const id of ['blender', 'unity', 'playwright']) {
         if (!address || typeof address === 'string') throw new Error('Missing fixture address');
         const result = await client.callTool({ name: 'browser_navigate', arguments: { url: `http://127.0.0.1:${address.port}` } }, { timeout: 30000 });
         expect(result.isError, JSON.stringify(result)).not.toBe(true);
-        expect(JSON.stringify(result)).toContain('CoS plugin browser fixture');
+        // Snapshot delivery can be inline or a generated file. Read the actual page via
+        // the browser tool instead of assuming one upstream presentation format.
+        const content = await client.callTool({ name: 'browser_evaluate', arguments: { function: "() => document.querySelector('h1')?.textContent" } });
+        expect(content.isError, JSON.stringify(content)).not.toBe(true);
+        expect(JSON.stringify(content)).toContain('CoS plugin browser fixture');
       }
     } finally {
       await client.close();

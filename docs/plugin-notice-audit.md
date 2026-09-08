@@ -71,6 +71,12 @@ A clean dependency install exposed concurrent Electron lazy downloads when multi
 workers first imported the module. Verification now resolves Electron once before starting
 parallel tests. This prepares the dependency without launching the desktop application.
 
+The first hosted CI run caught Git normalizing the upstream Playwright LICENSE's CRLF
+bytes, invalidating its recorded hash on checkout. License snapshots and the generated
+notice inventory now disable Git text conversion so the upstream bytes survive publication.
+Local catalog package tests passed for all five downloadable entries, including Playwright
+page-content verification independent of its inline/file snapshot presentation.
+
 Local validation: clean dependency installation; exact upstream archive/notice comparisons;
 `npm run verify` passed 3,402 main tests and two shutdown tests (27 existing opt-in/platform
 skips); production build passed. The new cross-platform live-plugin checks are tracked in the
