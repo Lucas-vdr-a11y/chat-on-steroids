@@ -22,7 +22,7 @@ beforeEach(async () => {
   await write('node_modules/fixture/LICENSE', 'Fixture copyright and permission\n');
   await write('node_modules/fixture/NOTICE', 'Fixture attribution\n');
   await write('docs/licenses/plugins/inventory.json', '[]');
-  for (const name of ['README.md', 'LGPL-3.0.txt', 'GPL-3.0.txt', 'MPL-2.0.txt']) await write(`docs/licenses/native/${name}`, `Fixture ${name}\n`);
+  for (const name of ['README.md', 'COMPONENT-NOTICES.txt', 'LGPL-3.0.txt', 'GPL-3.0.txt', 'MPL-2.0.txt']) await write(`docs/licenses/native/${name}`, `Fixture ${name}\n`);
 });
 afterEach(async () => { await removeTempDir(root); });
 

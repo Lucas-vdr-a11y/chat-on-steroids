@@ -31,15 +31,40 @@ use, trademark, generated asset or native binary distribution.
   permitted; an invalid installed manifest is not silently skipped. Packaging regenerates the
   notices on the packaging host and its runtime smoke check requires the output file.
 
-## Binary distribution remains a separate check
+## Native source and binary distribution
 
-The native sharp/libvips distributions contain LGPL/MPL components. Retained full license
-texts and links to upstream build projects do not establish complete corresponding source,
-component copyright attribution or replacement/relinking compliance for an exact installer.
-Before binary publication, verify the source delivery method, exact per-target component
-versions, patches/build recipes and applicable replacement conditions; inspect Electron,
-Chromium, tunnel, ripgrep and image-library notices in every actual artifact. This source PR
-and ordinary CI do not produce that evidence.
+The native sharp/libvips distributions contain LGPL/MPL components. Release assembly now
+requires a separate source artifact containing hash-verified component archives, Rust crate
+sources, required runtime sources, build repositories, patches and notices. The inventory
+is pinned to the actual sharp/@img package versions. Source downloads that change size or
+SHA-256 fail the job; the resulting archive travels through the same candidate checksum and
+publication gates as the installers. Installed notices link to that exact source asset.
+
+Windows and Unix dependency versions were traced separately. Upstream release logs establish
+the Unix Cargo resolution: only three unused crates were removed and none added/upgraded.
+The Windows build/MXE recipes and dated Rust distribution identify its source/runtime set.
+The source archive retains an inclusive dependency set; it does not assert every included
+test, optional or other-target source is linked into every installer.
+
+The audit caught a moved libimagequant v2.4.1 tag: today's source differs from the June
+binaries. The original commit was recovered, and its historical archive reconstructed with
+the exact Windows recipe SHA-256. The inventory uses that immutable original commit.
+TIFF and Unix Fontconfig use exact-commit source mirrors, and the Windows libxml2 URL's
+directory typo was corrected while preserving its original archive checksum.
+
+Component, crate and runtime copyright/license notices are retained in the installed notice
+inventory. Missing package license files were checked against exact source revisions or
+packaged MPL declarations, with provenance preserved in `sources.json`. Electron/Chromium
+notices are explicitly copied into application resources on every target; native smoke
+requires them along with sharp, tunnel and ripgrep notices.
+
+The selected LGPL route uses ordinary replaceable shared libraries under `app.asar.unpacked`.
+The source download documents rebuild settings, DLL/shared-library locations and macOS
+ad-hoc resealing, with no publisher-key requirement or application prohibition on modification
+and reverse engineering for debugging those modifications. See
+[source/build instructions](licenses/native/SOURCE-BUILD.md). The audit does not claim
+bit-identical upstream compiler reproduction or a complete offline rebuild; neither is
+treated as a substitute for required source, notices or replacement conditions.
 
 ## Primary sources
 
@@ -78,11 +103,22 @@ notice inventory now disable Git text conversion so the upstream bytes survive p
 Local catalog package tests passed for all five downloadable entries, including Playwright
 page-content verification independent of its inline/file snapshot presentation.
 
+All three hosted CI jobs subsequently passed, including published-package integration checks
+on Windows x64, macOS arm64 and Linux x64. The final release workflow additionally packages
+and smoke-tests both CPU architectures on all three operating systems.
+
 The next hosted pass exposed a race in the worker crash-order regression test on macOS and
 Linux: it treated completion of the broker write as completion of the separate command-lease
 write lane. The test now observes eventual on-disk command retirement after opening the broker
 gate, while retaining the assertion that the command stays durable before that gate opens.
 The production durability fence is unchanged.
+
+The user's sent-image layout correction separates attachment tiles from the text bubble in
+both pending and recorded messages. It removes reuse of the composer's fixed-size wrapper
+and the conflicting image rules. The source change was also applied as a scoped patch to
+the shared working tree. Typecheck and focused renderer regressions passed; a hidden Electron
+render with the production CSS confirmed a transparent wrapper, 96px image tile and 8px gap
+above the text-only bubble. No installed application was changed during this check.
 
 Local validation: clean dependency installation; exact upstream archive/notice comparisons;
 `npm run verify` passed 3,402 main tests and two shutdown tests (27 existing opt-in/platform
